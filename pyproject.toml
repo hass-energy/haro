@@ -11,6 +11,7 @@ dev = [
   "pytest>=9.0.0",
   "pytest-asyncio>=1.3.0",
   "pytest-homeassistant-custom-component>=0.13.300",
+  "pytest-timeout>=2.4.0",
   "ruff>=0.14.10",
   "pyright>=1.1.408",
 ]
@@ -18,6 +19,11 @@ dev = [
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests", "custom_components/haro"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = ["--strict-markers", "--strict-config", "--import-mode=importlib"]
+timeout = 5
 
 [tool.ruff]
 line-length = 120
@@ -29,6 +35,16 @@ select = ["E", "F", "I", "N", "W", "UP", "B", "C4", "SIM"]
 [tool.pyright]
 pythonVersion = "3.13"
 typeCheckingMode = "strict"
+include = ["tests", "custom_components"]
+exclude = ["**/node_modules"]
+extraPaths = ["."]
+reportMissingTypeStubs = false
+reportUnknownVariableType = false
+reportUnknownMemberType = false
+reportUnknownArgumentType = false
+reportUnknownLambdaType = false
+reportUnknownParameterType = false
+reportPrivateUsage = false
 
 [build-system]
 requires = ["hatchling"]

@@ -9,7 +9,6 @@ import pytest
 
 from custom_components.haro.const import CONF_REPLAY_URL, CONF_TOKEN, DOMAIN
 
-
 ha = pytest.importorskip("homeassistant.config_entries")
 
 
@@ -20,7 +19,9 @@ async def test_config_flow_requires_replay_validation(hass) -> None:  # type: ig
     flow.hass = hass
 
     with patch("custom_components.haro.config_flow.validate_replay_connection", AsyncMock()) as validate:
-        result = await flow.async_step_user({CONF_REPLAY_URL: "wss://replay.example/api/ingest/ws", CONF_TOKEN: "token"})
+        result = await flow.async_step_user(
+            {CONF_REPLAY_URL: "wss://replay.example/api/ingest/ws", CONF_TOKEN: "token"}
+        )
 
     validate.assert_awaited_once_with("wss://replay.example/api/ingest/ws", "token")
     assert result["type"] == "create_entry"

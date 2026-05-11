@@ -53,7 +53,11 @@ class FakeHass:
 
 
 def test_selected_entity_ids_dedupes_haeo_inputs_and_extras() -> None:
-    assert selected_entity_ids(["sensor.a", "sensor.b"], ["sensor.b", "sensor.c"]) == {"sensor.a", "sensor.b", "sensor.c"}
+    assert selected_entity_ids(["sensor.a", "sensor.b"], ["sensor.b", "sensor.c"]) == {
+        "sensor.a",
+        "sensor.b",
+        "sensor.c",
+    }
 
 
 def test_payload_from_state_matches_replay_shape() -> None:

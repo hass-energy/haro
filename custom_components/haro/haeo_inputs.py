@@ -24,6 +24,8 @@ def extract_entity_ids_from_config(config: Mapping[str, Any]) -> set[str]:
             case list():
                 for nested in value:
                     collect(nested)
+            case _:
+                return
 
     collect(dict(config))
     return entity_ids

@@ -22,7 +22,8 @@ async def validate_replay_connection(replay_url: str, token: str) -> None:
     await client.close()
 
 
-if config_entries is not None:
+if config_entries is not None and vol is not None:
+    _vol = vol
 
     class HaroConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type: ignore[misc]
         """Handle a HARO config flow."""
@@ -41,8 +42,9 @@ if config_entries is not None:
                 else:
                     return self.async_create_entry(title="HARO", data=user_input)
 
-            schema = vol.Schema({vol.Required(CONF_REPLAY_URL): str, vol.Required(CONF_TOKEN): str})
+            schema = _vol.Schema({_vol.Required(CONF_REPLAY_URL): str, _vol.Required(CONF_TOKEN): str})
             return self.async_show_form(step_id="user", data_schema=schema, errors=errors)
 
 else:
+    HaroConfigFlow: Any
     HaroConfigFlow = object

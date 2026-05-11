@@ -1,32 +1,85 @@
-name: release
+name: Release
 
 on:
-  push:
-    tags:
-      - "v*"
+  release:
+    types: [published]
+
+permissions:
+  contents: write
 
 jobs:
-  release:
+  validate-release:
+    name: Validate release version
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.13"
-      - name: Validate version
+      - name: Checkout the repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b # v7.2.0
+
+      - name: Extract and validate version from release tag
         run: |
-          python - <<'PY'
+          TAG="${{ github.event.release.tag_name }}"
+          VERSION="${TAG#v}"
+          echo "Tag: $TAG"
+          echo "Version: $VERSION"
+
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(rc[0-9]+)?$ ]]; then
+            echo "::error::Release tag '$TAG' does not match expected format (vX.Y.Z or vX.Y.ZrcN)"
+            exit 1
+          fi
+
+      - name: Validate release metadata
+        run: |
+          TAG="${{ github.event.release.tag_name }}"
+          TAG_VERSION="${TAG#v}"
+          uv run python - <<PY
           import json
+          import re
           import tomllib
           from pathlib import Path
+
+          tag_version = "$TAG_VERSION"
           manifest = json.loads(Path("custom_components/haro/manifest.json").read_text())
+          hacs = json.loads(Path("hacs.json").read_text())
           pyproject = tomllib.loads(Path("pyproject.toml").read_text())
-          assert manifest["version"] == pyproject["project"]["version"]
+
+          pyproject_version = pyproject["project"]["version"]
+          manifest_version = manifest["version"]
+          print(f"tag={tag_version} pyproject.toml={pyproject_version} manifest.json={manifest_version}")
+          if tag_version != pyproject_version:
+              raise SystemExit("release tag and pyproject.toml versions differ")
+          if tag_version != manifest_version:
+              raise SystemExit("release tag and manifest.json versions differ")
+
+          dependencies = pyproject["project"]["dependencies"]
+          match = re.search(r"homeassistant>=(\d+\.\d+\.\d+)", str(dependencies))
+          if match is None:
+              raise SystemExit("homeassistant dependency is missing or unpinned")
+
+          pyproject_ha = match.group(1)
+          hacs_ha = hacs["homeassistant"]
+          print(f"homeassistant pyproject.toml={pyproject_ha} hacs.json={hacs_ha}")
+          if pyproject_ha != hacs_ha:
+              raise SystemExit("pyproject.toml and hacs.json Home Assistant versions differ")
           PY
+
+  upload-assets:
+    name: Upload release assets
+    needs: validate-release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout the repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
       - name: Build HACS zip
         run: |
           cd custom_components
           zip -r ../haro.zip haro -x "*/tests/*" "*/__pycache__/*"
-      - uses: softprops/action-gh-release@v2
+
+      - name: Upload release asset
+        uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2.5.0
         with:
-          files: haro.zip
+          files: |
+            haro.zip

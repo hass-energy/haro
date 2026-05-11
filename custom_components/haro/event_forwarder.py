@@ -5,7 +5,8 @@ from __future__ import annotations
 import asyncio
 from collections import deque
 from collections.abc import Iterable
-from dataclasses import dataclass, field
+from contextlib import suppress
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
@@ -40,17 +41,15 @@ def payload_from_state(entity_id: str, state: Any) -> StatePayload | None:
     when = getattr(state, "last_changed", None) or getattr(state, "last_updated", None)
     if when is None:
         return None
-    if isinstance(when, datetime):
-        time = when.isoformat()
-    else:
-        time = str(when)
+    time = when.isoformat() if isinstance(when, datetime) else str(when)
     context = getattr(state, "context", None)
     context_id = getattr(context, "id", None)
     attributes = getattr(state, "attributes", None)
+    state_value = getattr(state, "state", None)
     return {
         "time": time,
         "entity_id": entity_id,
-        "state": None if getattr(state, "state", None) is None else str(getattr(state, "state")),
+        "state": None if state_value is None else str(state.state),
         "attributes": attributes if isinstance(attributes, dict) else {},
         "context_id": context_id,
     }
@@ -94,10 +93,8 @@ class HaroForwarder:
             self._unsub = None
         if self._task is not None:
             self._task.cancel()
-            try:
+            with suppress(asyncio.CancelledError):
                 await self._task
-            except asyncio.CancelledError:
-                pass
             self._task = None
         await self.client.close()
 

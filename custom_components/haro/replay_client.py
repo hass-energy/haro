@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any
 from uuid import uuid4
@@ -46,7 +46,7 @@ class ReplayWebSocketClient:
     _lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
     @classmethod
-    def from_config(cls, data: dict[str, Any]) -> "ReplayWebSocketClient":
+    def from_config(cls, data: Mapping[str, Any]) -> ReplayWebSocketClient:
         """Create a client from config-entry data."""
         return cls(url=str(data[CONF_REPLAY_URL]), token=str(data[CONF_TOKEN]))
 

@@ -14,6 +14,7 @@ CONF_BATCH_SIZE = "batch_size"
 CONF_FLUSH_INTERVAL = "flush_interval"
 CONF_QUEUE_LIMIT = "queue_limit"
 
+DEFAULT_REPLAY_URL = "wss://replay.haeo.io/api/ingest/ws"
 DEFAULT_BATCH_SIZE = 100
 DEFAULT_FLUSH_INTERVAL = 1.0
 DEFAULT_QUEUE_LIMIT = 10_000

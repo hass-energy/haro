@@ -11,7 +11,7 @@ except Exception:  # pragma: no cover - lets pure unit tests import the module w
     vol = None
     config_entries = None
 
-from .const import CONF_REPLAY_URL, CONF_TOKEN, DOMAIN
+from .const import CONF_REPLAY_URL, CONF_TOKEN, DEFAULT_REPLAY_URL, DOMAIN
 from .replay_client import ReplayWebSocketClient
 
 
@@ -42,7 +42,9 @@ if config_entries is not None and vol is not None:
                 else:
                     return self.async_create_entry(title="HARO", data=user_input)
 
-            schema = _vol.Schema({_vol.Required(CONF_REPLAY_URL): str, _vol.Required(CONF_TOKEN): str})
+            schema = _vol.Schema(
+                {_vol.Required(CONF_REPLAY_URL, default=DEFAULT_REPLAY_URL): str, _vol.Required(CONF_TOKEN): str}
+            )
             return self.async_show_form(step_id="user", data_schema=schema, errors=errors)
 
 else:

@@ -7,9 +7,21 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from custom_components.haro.const import CONF_REPLAY_URL, CONF_TOKEN, DOMAIN
+from custom_components.haro.const import CONF_REPLAY_URL, CONF_TOKEN, DEFAULT_REPLAY_URL, DOMAIN
 
 ha = pytest.importorskip("homeassistant.config_entries")
+
+
+@pytest.mark.asyncio
+async def test_config_flow_defaults_to_hosted_replay_url(hass) -> None:  # type: ignore[no-untyped-def]
+    module = importlib.import_module("custom_components.haro.config_flow")
+    flow = module.HaroConfigFlow()
+    flow.hass = hass
+
+    result = await flow.async_step_user()
+
+    replay_url_key = next(key for key in result["data_schema"].schema if key.schema == CONF_REPLAY_URL)
+    assert replay_url_key.default() == DEFAULT_REPLAY_URL
 
 
 @pytest.mark.asyncio

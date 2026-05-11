@@ -1,0 +1,8 @@
+{
+  "name": "HARO",
+  "hacs": "2.0.5",
+  "homeassistant": "2026.1.1",
+  "filename": "haro.zip",
+  "render_readme": true,
+  "zip_release": true
+}

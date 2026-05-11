@@ -1,0 +1,32 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Validate version
+        run: |
+          python - <<'PY'
+          import json
+          import tomllib
+          from pathlib import Path
+          manifest = json.loads(Path("custom_components/haro/manifest.json").read_text())
+          pyproject = tomllib.loads(Path("pyproject.toml").read_text())
+          assert manifest["version"] == pyproject["project"]["version"]
+          PY
+      - name: Build HACS zip
+        run: |
+          cd custom_components
+          zip -r ../haro.zip haro -x "*/tests/*" "*/__pycache__/*"
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: haro.zip

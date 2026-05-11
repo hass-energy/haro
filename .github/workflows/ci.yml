@@ -1,0 +1,179 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  merge_group:
+    types: [checks_requested]
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  ruff-format:
+    name: Ruff format
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout the repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b # v7.2.0
+
+      - name: Install dependencies
+        run: uv sync --locked --dev
+
+      - name: Check Python formatting
+        run: uv run ruff format --check
+
+  ruff-lint:
+    name: Ruff lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout the repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b # v7.2.0
+
+      - name: Install dependencies
+        run: uv sync --locked --dev
+
+      - name: Run Ruff
+        run: uv run ruff check
+
+  pyright:
+    name: Pyright
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout the repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b # v7.2.0
+
+      - name: Install dependencies
+        run: uv sync --locked --dev
+
+      - name: Run Pyright
+        run: uv run pyright
+
+  test:
+    name: Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout the repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b # v7.2.0
+
+      - name: Install dependencies
+        run: uv sync --locked --dev
+
+      - name: Run tests
+        run: uv run pytest
+
+  hassfest:
+    name: Hassfest
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout the repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Run hassfest validation
+        uses: home-assistant/actions/hassfest@87c064c607f3c5cc673a24258d0c98d23033bfc3 # master
+
+  hacs:
+    name: HACS
+    if: ${{ github.event.repository.private == false }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout the repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Run HACS validation
+        uses: hacs/action@d556e736723344f83838d08488c983a15381059a # 22.5.0
+        with:
+          category: integration
+          ignore: brands topics
+
+  version-check:
+    name: Version consistency
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout the repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b # v7.2.0
+
+      - name: Check HARO version consistency
+        run: |
+          uv run python - <<'PY'
+          import json
+          import tomllib
+          from pathlib import Path
+
+          pyproject = tomllib.loads(Path("pyproject.toml").read_text())
+          manifest = json.loads(Path("custom_components/haro/manifest.json").read_text())
+
+          pyproject_version = pyproject["project"]["version"]
+          manifest_version = manifest["version"]
+          print(f"pyproject.toml={pyproject_version} manifest.json={manifest_version}")
+          if pyproject_version != manifest_version:
+              raise SystemExit("pyproject.toml and manifest.json versions differ")
+          PY
+
+      - name: Check Home Assistant version consistency
+        run: |
+          uv run python - <<'PY'
+          import json
+          import re
+          import tomllib
+          from pathlib import Path
+
+          pyproject = tomllib.loads(Path("pyproject.toml").read_text())
+          hacs = json.loads(Path("hacs.json").read_text())
+          dependencies = pyproject["project"]["dependencies"]
+          match = re.search(r"homeassistant>=(\d+\.\d+\.\d+)", str(dependencies))
+          if match is None:
+              raise SystemExit("homeassistant dependency is missing or unpinned")
+
+          pyproject_version = match.group(1)
+          hacs_version = hacs["homeassistant"]
+          print(f"pyproject.toml={pyproject_version} hacs.json={hacs_version}")
+          if pyproject_version != hacs_version:
+              raise SystemExit("pyproject.toml and hacs.json Home Assistant versions differ")
+          PY
+
+  ci-passed:
+    name: CI passed
+    if: always()
+    needs:
+      - ruff-format
+      - ruff-lint
+      - pyright
+      - test
+      - hassfest
+      - hacs
+      - version-check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check all jobs passed
+        run: |
+          if [[ "${{ contains(needs.*.result, 'failure') }}" == "true" ]]; then
+            echo "::error::One or more required jobs failed"
+            exit 1
+          fi
+          if [[ "${{ contains(needs.*.result, 'cancelled') }}" == "true" ]]; then
+            echo "::error::One or more required jobs were cancelled"
+            exit 1
+          fi
+          echo "All required jobs passed"

@@ -1,0 +1,18 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect HARO to Replay",
+        "description": "HARO records selected HAEO input entities and streams them to Replay.",
+        "data": {
+          "replay_url": "Replay websocket URL",
+          "token": "Replay site token"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Could not connect to Replay",
+      "invalid_auth": "Replay rejected the token"
+    }
+  }
+}

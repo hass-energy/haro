@@ -6,7 +6,6 @@ DOMAIN = "haro"
 NAME = "HARO"
 VERSION = "0.0.1"
 
-CONF_REPLAY_URL = "replay_url"
 CONF_TOKEN = "token"
 CONF_HAEO_CONFIG_ENTRY_ID = "haeo_config_entry_id"
 CONF_EXTRA_ENTITY_IDS = "extra_entity_ids"

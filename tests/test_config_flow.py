@@ -12,7 +12,6 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.haro.const import (
     CONF_HAEO_CONFIG_ENTRY_ID,
-    CONF_REPLAY_URL,
     CONF_TOKEN,
     DEFAULT_REPLAY_URL,
     DOMAIN,
@@ -36,15 +35,15 @@ def create_flow(module, hass):  # type: ignore[no-untyped-def]
 
 
 @pytest.mark.asyncio
-async def test_config_flow_defaults_to_hosted_replay_url(hass) -> None:  # type: ignore[no-untyped-def]
+async def test_config_flow_does_not_show_replay_url(hass) -> None:  # type: ignore[no-untyped-def]
     add_haeo_entry(hass)
     module = importlib.import_module("custom_components.haro.config_flow")
     flow = create_flow(module, hass)
 
     result = await flow.async_step_user()
 
-    replay_url_key = next(key for key in result["data_schema"].schema if key.schema == CONF_REPLAY_URL)
-    assert replay_url_key.default() == DEFAULT_REPLAY_URL
+    fields = {key.schema for key in result["data_schema"].schema}
+    assert fields == {CONF_HAEO_CONFIG_ENTRY_ID, CONF_TOKEN}
 
 
 @pytest.mark.asyncio
@@ -74,7 +73,6 @@ async def test_config_flow_requires_replay_validation(hass) -> None:  # type: ig
         result = await flow.async_step_user(
             {
                 CONF_HAEO_CONFIG_ENTRY_ID: haeo_entry.entry_id,
-                CONF_REPLAY_URL: DEFAULT_REPLAY_URL,
                 CONF_TOKEN: "token",
             }
         )
@@ -83,7 +81,7 @@ async def test_config_flow_requires_replay_validation(hass) -> None:  # type: ig
     assert result["type"] == "create_entry"
     assert result["title"] == "HARO - Home Energy"
     assert result["data"][CONF_HAEO_CONFIG_ENTRY_ID] == haeo_entry.entry_id
-    assert result["data"][CONF_REPLAY_URL] == DEFAULT_REPLAY_URL
+    assert result["data"] == {CONF_HAEO_CONFIG_ENTRY_ID: haeo_entry.entry_id, CONF_TOKEN: "token"}
     assert DOMAIN == "haro"
 
 
@@ -96,7 +94,6 @@ async def test_config_flow_rejects_no_haeo_placeholder(hass) -> None:  # type: i
         result = await flow.async_step_user(
             {
                 CONF_HAEO_CONFIG_ENTRY_ID: "__no_haeo_entries__",
-                CONF_REPLAY_URL: DEFAULT_REPLAY_URL,
                 CONF_TOKEN: "token",
             }
         )
@@ -117,7 +114,6 @@ async def test_config_flow_rejects_duplicate_haeo_entry(hass) -> None:  # type: 
         result = await flow.async_step_user(
             {
                 CONF_HAEO_CONFIG_ENTRY_ID: haeo_entry.entry_id,
-                CONF_REPLAY_URL: DEFAULT_REPLAY_URL,
                 CONF_TOKEN: "token",
             }
         )

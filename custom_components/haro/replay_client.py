@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from typing import Any
 from uuid import uuid4
 
-from .const import CONF_REPLAY_URL, CONF_TOKEN
+from .const import CONF_TOKEN, DEFAULT_REPLAY_URL
 
 StatePayload = dict[str, Any]
 ConnectFn = Callable[[str, dict[str, str]], Awaitable[Any]]
@@ -48,7 +48,7 @@ class ReplayWebSocketClient:
     @classmethod
     def from_config(cls, data: Mapping[str, Any]) -> ReplayWebSocketClient:
         """Create a client from config-entry data."""
-        return cls(url=str(data[CONF_REPLAY_URL]), token=str(data[CONF_TOKEN]))
+        return cls(url=DEFAULT_REPLAY_URL, token=str(data[CONF_TOKEN]))
 
     async def connect(self) -> None:
         """Connect to Replay using bearer auth."""

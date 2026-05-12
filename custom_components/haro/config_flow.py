@@ -13,7 +13,7 @@ except Exception:  # pragma: no cover - lets pure unit tests import the module w
     config_entries = None
     selector = None
 
-from .const import CONF_HAEO_CONFIG_ENTRY_ID, CONF_REPLAY_URL, CONF_TOKEN, DEFAULT_REPLAY_URL, DOMAIN
+from .const import CONF_HAEO_CONFIG_ENTRY_ID, CONF_TOKEN, DEFAULT_REPLAY_URL, DOMAIN
 from .replay_client import ReplayWebSocketClient
 
 
@@ -52,7 +52,7 @@ if config_entries is not None and vol is not None and selector is not None:
 
                 try:
                     if not errors:
-                        await validate_replay_connection(str(user_input[CONF_REPLAY_URL]), str(user_input[CONF_TOKEN]))
+                        await validate_replay_connection(DEFAULT_REPLAY_URL, str(user_input[CONF_TOKEN]))
                 except Exception:
                     if not errors:
                         errors["base"] = "cannot_connect"
@@ -72,7 +72,6 @@ if config_entries is not None and vol is not None and selector is not None:
                     _vol.Required(CONF_HAEO_CONFIG_ENTRY_ID): _selector.SelectSelector(
                         _selector.SelectSelectorConfig(options=options, mode=_selector.SelectSelectorMode.DROPDOWN)
                     ),
-                    _vol.Required(CONF_REPLAY_URL, default=DEFAULT_REPLAY_URL): str,
                     _vol.Required(CONF_TOKEN): str,
                 }
             )

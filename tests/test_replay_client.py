@@ -27,6 +27,13 @@ class FakeWebSocket:
         return None
 
 
+def test_client_from_config_uses_default_replay_url() -> None:
+    client = ReplayWebSocketClient.from_config({"token": "token"})
+
+    assert client.url == DEFAULT_REPLAY_URL
+    assert client.token == "token"
+
+
 @pytest.mark.asyncio
 async def test_client_uses_bearer_auth_and_waits_for_ack() -> None:
     calls: list[tuple[str, dict[str, str]]] = []

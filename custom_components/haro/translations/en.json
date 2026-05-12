@@ -6,7 +6,6 @@
         "description": "HARO records selected HAEO input entities and streams them to Replay.",
         "data": {
           "haeo_config_entry_id": "HAEO install",
-          "replay_url": "Replay websocket URL",
           "token": "Replay site token"
         }
       }

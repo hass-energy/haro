@@ -4,7 +4,7 @@ from __future__ import annotations
 
 DOMAIN = "haro"
 NAME = "HARO"
-VERSION = "0.0.1rc2"
+VERSION = "0.0.1rc3"
 
 CONF_TOKEN = "token"
 CONF_REPLAY_URL = "replay_url"

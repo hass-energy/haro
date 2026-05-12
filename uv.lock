@@ -841,7 +841,7 @@ wheels = [
 
 [[package]]
 name = "haro"
-version = "0.0.1rc1"
+version = "0.0.1rc2"
 source = { editable = "." }
 dependencies = [
     { name = "homeassistant" },

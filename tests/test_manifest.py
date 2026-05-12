@@ -15,7 +15,6 @@ def test_manifest_and_pyproject_versions_match() -> None:
 
     assert manifest["domain"] == "haro"
     assert manifest["name"] == "HARO"
-    assert manifest["version"] == "0.0.1rc1"
     assert pyproject["project"]["name"] == "haro"
     assert pyproject["project"]["version"] == manifest["version"]
 

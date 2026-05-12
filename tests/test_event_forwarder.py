@@ -104,6 +104,26 @@ def test_payload_from_state_matches_replay_shape() -> None:
     }
 
 
+def test_payload_from_state_serializes_datetime_attributes() -> None:
+    state = State(
+        "1",
+        {
+            "next_update": datetime(2026, 1, 1, 1, 2, 3, tzinfo=UTC),
+            "nested": {"times": [datetime(2026, 1, 1, 4, 5, 6, tzinfo=UTC)]},
+        },
+        datetime(2026, 1, 1, tzinfo=UTC),
+        Context("ctx"),
+    )
+
+    payload = payload_from_state("sensor.energy", state)
+
+    assert payload is not None
+    assert payload["attributes"] == {
+        "next_update": "2026-01-01T01:02:03+00:00",
+        "nested": {"times": ["2026-01-01T04:05:06+00:00"]},
+    }
+
+
 def test_queue_drops_oldest_when_full() -> None:
     forwarder = HaroForwarder(FakeHass(), FakeEntry(), FakeClient())  # type: ignore[arg-type]
     state = State("1", {}, datetime(2026, 1, 1, tzinfo=UTC), Context("ctx"))

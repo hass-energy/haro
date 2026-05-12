@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import asyncio
 from collections import deque
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from contextlib import suppress
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
 from .const import (
@@ -21,7 +21,7 @@ from .const import (
     DEFAULT_QUEUE_LIMIT,
 )
 from .haeo_inputs import entity_ids_from_haeo_entry
-from .replay_client import ReplayWebSocketClient, StatePayload
+from .replay_client import ReplayClient, StatePayload
 
 
 @dataclass(slots=True)
@@ -34,6 +34,17 @@ class ForwarderStats:
     dropped: int = 0
     filtered: int = 0
     last_error: str | None = None
+
+
+def json_safe(value: Any) -> Any:
+    """Return a JSON-safe copy of common Home Assistant state values."""
+    if isinstance(value, datetime | date):
+        return value.isoformat()
+    if isinstance(value, Mapping):
+        return {str(key): json_safe(nested) for key, nested in value.items()}
+    if isinstance(value, list | tuple):
+        return [json_safe(nested) for nested in value]
+    return value
 
 
 def payload_from_state(entity_id: str, state: Any) -> StatePayload | None:
@@ -50,7 +61,7 @@ def payload_from_state(entity_id: str, state: Any) -> StatePayload | None:
         "time": time,
         "entity_id": entity_id,
         "state": None if state_value is None else str(state.state),
-        "attributes": attributes if isinstance(attributes, dict) else {},
+        "attributes": json_safe(attributes) if isinstance(attributes, Mapping) else {},
         "context_id": context_id,
     }
 
@@ -63,7 +74,7 @@ def selected_entity_ids(haeo_inputs: Iterable[str], extras: Iterable[str]) -> se
 class HaroForwarder:
     """Collect selected HA states and send them to Replay."""
 
-    def __init__(self, hass: Any, entry: Any, client: ReplayWebSocketClient) -> None:
+    def __init__(self, hass: Any, entry: Any, client: ReplayClient) -> None:
         self.hass = hass
         self.entry = entry
         self.client = client

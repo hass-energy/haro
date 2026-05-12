@@ -5,11 +5,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+import homeassistant.helpers.config_validation as cv
+import voluptuous as vol
 from homeassistant.const import Platform
 
-from .const import DOMAIN
+from .const import CONF_REPLAY_URL, DEFAULT_REPLAY_URL, DOMAIN
 from .event_forwarder import HaroForwarder
-from .replay_client import ReplayWebSocketClient
+from .replay_client import ReplayClient, replay_client_from_config
 
 if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
@@ -18,19 +20,37 @@ if TYPE_CHECKING:
 type HaroConfigEntry = "ConfigEntry[HaroRuntimeData]"
 
 PLATFORMS = [Platform.SENSOR]
+CONFIG_SCHEMA = vol.Schema(
+    {
+        DOMAIN: vol.Schema(
+            {
+                vol.Optional(CONF_REPLAY_URL, default=DEFAULT_REPLAY_URL): cv.string,
+            }
+        )
+    },
+    extra=vol.ALLOW_EXTRA,
+)
 
 
 @dataclass
 class HaroRuntimeData:
     """Runtime data owned by a HARO config entry."""
 
-    client: ReplayWebSocketClient
+    client: ReplayClient
     forwarder: HaroForwarder
+
+
+async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
+    """Set up HARO YAML configuration."""
+    domain_config = config.get(DOMAIN, {})
+    hass.data.setdefault(DOMAIN, {})[CONF_REPLAY_URL] = domain_config.get(CONF_REPLAY_URL, DEFAULT_REPLAY_URL)
+    return True
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up HARO from a config entry."""
-    client = ReplayWebSocketClient.from_config(entry.data)
+    replay_url = hass.data.setdefault(DOMAIN, {}).get(CONF_REPLAY_URL, DEFAULT_REPLAY_URL)
+    client = replay_client_from_config(entry.data, replay_url)
     forwarder = HaroForwarder(hass, entry, client)
     entry.runtime_data = HaroRuntimeData(client=client, forwarder=forwarder)
     await forwarder.async_start()

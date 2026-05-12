@@ -6,7 +6,10 @@ from typing import TYPE_CHECKING, Protocol
 
 from homeassistant.components.sensor import SensorEntity, SensorEntityDescription
 from homeassistant.const import EntityCategory
+from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.typing import StateType
+
+from .const import DOMAIN, NAME
 
 if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
@@ -21,8 +24,13 @@ class DiagnosticSource(Protocol):
         """Return current diagnostic values."""
         ...
 
+    @property
+    def entity_ids(self) -> set[str]:
+        """Return currently monitored entity IDs."""
+        ...
 
-DIAGNOSTIC_KEYS = ("received", "queued", "sent", "dropped", "filtered", "last_error")
+
+DIAGNOSTIC_KEYS = ("received", "queued", "sent", "dropped", "filtered", "last_error", "monitored_entities")
 
 SENSOR_DESCRIPTIONS: dict[str, SensorEntityDescription] = {
     "received": SensorEntityDescription(key="received", name="Received state changes"),
@@ -31,6 +39,7 @@ SENSOR_DESCRIPTIONS: dict[str, SensorEntityDescription] = {
     "dropped": SensorEntityDescription(key="dropped", name="Dropped states"),
     "filtered": SensorEntityDescription(key="filtered", name="Filtered state changes"),
     "last_error": SensorEntityDescription(key="last_error", name="Last error"),
+    "monitored_entities": SensorEntityDescription(key="monitored_entities", name="Monitored entities"),
 }
 
 
@@ -59,8 +68,22 @@ class HaroDiagnosticSensor(SensorEntity):
         self._forwarder = forwarder
         self._key = key
         self._attr_unique_id = f"{entry.entry_id}_{key}"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, entry.entry_id)},
+            manufacturer=NAME,
+            name=entry.title or NAME,
+        )
 
     @property
     def native_value(self) -> StateType:  # type: ignore[reportIncompatibleVariableOverride]
         """Return the latest diagnostic value."""
+        if self._key == "monitored_entities":
+            return len(self._forwarder.entity_ids)
         return self._forwarder.diagnostics().get(self._key)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, list[str]] | None:  # type: ignore[reportIncompatibleVariableOverride]
+        """Return additional diagnostic attributes."""
+        if self._key != "monitored_entities":
+            return None
+        return {"entity_ids": sorted(self._forwarder.entity_ids)}

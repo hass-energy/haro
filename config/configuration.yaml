@@ -1,4 +1,9 @@
+haro:
+  replay_url: log_only
+
 logger:
   default: warning
   logs:
     custom_components.haro: debug
+    custom_components.haeo: debug
+    custom_components.hacs: info

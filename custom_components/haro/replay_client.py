@@ -3,15 +3,32 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Protocol
 from uuid import uuid4
 
-from .const import CONF_TOKEN, DEFAULT_REPLAY_URL
+from .const import CONF_TOKEN, DEFAULT_REPLAY_URL, REPLAY_URL_LOG_ONLY
+
+_LOGGER = logging.getLogger(__name__)
 
 StatePayload = dict[str, Any]
 ConnectFn = Callable[[str, dict[str, str]], Awaitable[Any]]
+
+
+class ReplayClient(Protocol):
+    """Small interface HARO uses for Replay transports."""
+
+    stats: ReplayClientStats
+
+    async def close(self) -> None:
+        """Close the client."""
+        ...
+
+    async def send_states(self, states: list[StatePayload]) -> dict[str, Any]:
+        """Send state payloads."""
+        ...
 
 
 class ReplayClientError(Exception):
@@ -98,6 +115,33 @@ class ReplayWebSocketClient:
             if msg.get("type") == "error":
                 self.stats.last_error = str(msg.get("error", "unknown"))
                 raise ReplayClientError(self.stats.last_error)
+
+
+@dataclass
+class LoggingReplayClient:
+    """Replay client that logs payloads instead of sending them."""
+
+    stats: ReplayClientStats = field(default_factory=ReplayClientStats)
+
+    async def close(self) -> None:
+        """Close the logging client."""
+        return None
+
+    async def send_states(self, states: list[StatePayload]) -> dict[str, Any]:
+        """Log state payloads and return an ack-like response."""
+        if not states:
+            return {"inserted": 0}
+        _LOGGER.info("HARO log_only Replay received %s states: %s", len(states), states)
+        self.stats.sent_batches += 1
+        self.stats.sent_states += len(states)
+        return {"inserted": len(states)}
+
+
+def replay_client_from_config(data: Mapping[str, Any], replay_url: str = DEFAULT_REPLAY_URL) -> ReplayClient:
+    """Create a Replay client from config-entry data and resolved Replay URL."""
+    if replay_url == REPLAY_URL_LOG_ONLY:
+        return LoggingReplayClient()
+    return ReplayWebSocketClient(url=replay_url, token=str(data[CONF_TOKEN]))
 
 
 async def _default_connect(url: str, headers: dict[str, str]) -> Any:

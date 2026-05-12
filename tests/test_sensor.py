@@ -17,6 +17,7 @@ ha = pytest.importorskip("homeassistant.components.sensor")
 
 class FakeForwarder:
     def __init__(self) -> None:
+        self.entity_ids = {"sensor.b", "sensor.a"}
         self.values: dict[str, StateType] = {
             "received": 3,
             "queued": 2,
@@ -52,8 +53,12 @@ async def test_async_setup_entry_creates_diagnostic_sensors(hass) -> None:  # ty
         "dropped",
         "filtered",
         "last_error",
+        "monitored_entities",
     }
     assert all(sensor.entity_category is EntityCategory.DIAGNOSTIC for sensor in sensors)
+    assert all(sensor.device_info == sensors[0].device_info for sensor in sensors)
+    assert sensors[0].device_info["identifiers"] == {(DOMAIN, "haro-entry")}
+    assert sensors[0].device_info["name"] == "HARO - Home Energy"
 
 
 def test_diagnostic_sensor_reads_latest_forwarder_value() -> None:
@@ -67,3 +72,13 @@ def test_diagnostic_sensor_reads_latest_forwarder_value() -> None:
     runtime.forwarder.values["sent"] = 5
 
     assert sensor.native_value == 5
+
+
+def test_monitored_entities_sensor_counts_and_lists_entity_ids() -> None:
+    entry = MockConfigEntry(domain=DOMAIN, entry_id="haro-entry", title="HARO")
+    runtime = FakeRuntime()
+    sensor = HaroDiagnosticSensor(entry, runtime.forwarder, "monitored_entities")
+
+    assert sensor.unique_id == "haro-entry_monitored_entities"
+    assert sensor.native_value == 2
+    assert sensor.extra_state_attributes == {"entity_ids": ["sensor.a", "sensor.b"]}

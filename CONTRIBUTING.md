@@ -11,6 +11,16 @@ Install dependencies with uv:
 uv sync --locked --dev
 ```
 
+For local Home Assistant development with real HAEO and log-only Replay:
+
+```bash
+uv run python scripts/dev_setup_home_assistant.py
+uv run hass -c config
+```
+
+The committed dev config sets `haro: replay_url: log_only`, so HARO logs Replay payloads without sending them to the real service.
+The setup script symlinks HARO, copies the sibling `/root/haeo` checkout, and installs HACS into the ignored `config/custom_components/` directory.
+
 Run the core checks before opening a pull request:
 
 ```bash

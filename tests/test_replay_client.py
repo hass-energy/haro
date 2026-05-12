@@ -6,8 +6,8 @@ from typing import Any
 
 import pytest
 
-from custom_components.haro.const import DEFAULT_REPLAY_URL
-from custom_components.haro.replay_client import ReplayWebSocketClient
+from custom_components.haro.const import DEFAULT_REPLAY_URL, REPLAY_URL_LOG_ONLY
+from custom_components.haro.replay_client import LoggingReplayClient, ReplayWebSocketClient, replay_client_from_config
 
 
 class FakeWebSocket:
@@ -32,6 +32,27 @@ def test_client_from_config_uses_default_replay_url() -> None:
 
     assert client.url == DEFAULT_REPLAY_URL
     assert client.token == "token"
+
+
+def test_replay_client_factory_uses_default_replay_url() -> None:
+    client = replay_client_from_config({"token": "token"})
+
+    assert isinstance(client, ReplayWebSocketClient)
+    assert client.url == DEFAULT_REPLAY_URL
+    assert client.token == "token"
+
+
+@pytest.mark.asyncio
+async def test_log_only_client_acknowledges_without_websocket() -> None:
+    client = replay_client_from_config({"token": "token"}, REPLAY_URL_LOG_ONLY)
+
+    assert isinstance(client, LoggingReplayClient)
+
+    ack = await client.send_states([{"entity_id": "sensor.energy", "time": "2026-01-01T00:00:00Z"}])
+
+    assert ack == {"inserted": 1}
+    assert client.stats.sent_batches == 1
+    assert client.stats.sent_states == 1
 
 
 @pytest.mark.asyncio

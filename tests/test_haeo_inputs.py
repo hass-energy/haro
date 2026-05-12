@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from custom_components.haro.haeo_inputs import entity_ids_from_haeo_entries, extract_entity_ids_from_config
+from custom_components.haro.haeo_inputs import entity_ids_from_haeo_entry, extract_entity_ids_from_config
 
 
 @dataclass
@@ -32,7 +32,7 @@ def test_extract_entity_ids_from_nested_haeo_config_values() -> None:
     assert extract_entity_ids_from_config(config) == {"sensor.battery_capacity", "sensor.import_limit"}
 
 
-def test_entity_ids_from_selected_haeo_entries_skips_network_and_dedupes() -> None:
+def test_entity_ids_from_selected_haeo_entry_skips_network_and_dedupes() -> None:
     entry = Entry(
         "selected",
         {
@@ -42,4 +42,4 @@ def test_entity_ids_from_selected_haeo_entries_skips_network_and_dedupes() -> No
     )
     other = Entry("other", {"load": Subentry("load", {"power": {"type": "entity", "value": ["sensor.other"]}})})
 
-    assert entity_ids_from_haeo_entries([entry, other], ["selected"]) == {"sensor.soc"}
+    assert entity_ids_from_haeo_entry([entry, other], "selected") == {"sensor.soc"}

@@ -6,6 +6,7 @@ from typing import Any
 
 import pytest
 
+from custom_components.haro.const import DEFAULT_REPLAY_URL
 from custom_components.haro.replay_client import ReplayWebSocketClient
 
 
@@ -35,10 +36,10 @@ async def test_client_uses_bearer_auth_and_waits_for_ack() -> None:
         calls.append((url, headers))
         return ws
 
-    client = ReplayWebSocketClient("wss://replay.example/api/ingest/ws", "token", connect)
+    client = ReplayWebSocketClient(DEFAULT_REPLAY_URL, "token", connect)
     ack = await client.send_states([{"entity_id": "sensor.energy", "time": "2026-01-01T00:00:00Z"}])
 
-    assert calls == [("wss://replay.example/api/ingest/ws", {"Authorization": "Bearer token"})]
+    assert calls == [(DEFAULT_REPLAY_URL, {"Authorization": "Bearer token"})]
     assert ws.sent[0]["type"] == "states"
     assert ack["type"] == "ack"
     assert client.stats.sent_batches == 1
@@ -52,7 +53,7 @@ async def test_client_reconnects_and_resends_unacked_batch() -> None:
     async def connect(url: str, headers: dict[str, str]) -> FakeWebSocket:
         return sockets.pop(0)
 
-    client = ReplayWebSocketClient("wss://replay.example/api/ingest/ws", "token", connect)
+    client = ReplayWebSocketClient(DEFAULT_REPLAY_URL, "token", connect)
     ack = await client.send_states([{"entity_id": "sensor.energy", "time": "2026-01-01T00:00:00Z"}])
 
     assert ack["type"] == "ack"

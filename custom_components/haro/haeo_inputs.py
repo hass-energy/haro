@@ -31,13 +31,15 @@ def extract_entity_ids_from_config(config: Mapping[str, Any]) -> set[str]:
     return entity_ids
 
 
-def entity_ids_from_haeo_entries(entries: Iterable[Any], selected_entry_ids: Iterable[str]) -> set[str]:
-    """Collect deduped HAEO input entities from selected config entries."""
-    selected = set(selected_entry_ids)
+def entity_ids_from_haeo_entry(entries: Iterable[Any], selected_entry_id: str | None) -> set[str]:
+    """Collect deduped HAEO input entities from one selected config entry."""
+    if not selected_entry_id:
+        return set()
+
     entity_ids: set[str] = set()
     for entry in entries:
         entry_id = getattr(entry, "entry_id", None)
-        if entry_id not in selected:
+        if entry_id != selected_entry_id:
             continue
         subentries = getattr(entry, "subentries", {})
         for subentry in subentries.values() if isinstance(subentries, Mapping) else subentries:

@@ -14,13 +14,13 @@ from .const import (
     CONF_BATCH_SIZE,
     CONF_EXTRA_ENTITY_IDS,
     CONF_FLUSH_INTERVAL,
-    CONF_HAEO_CONFIG_ENTRY_IDS,
+    CONF_HAEO_CONFIG_ENTRY_ID,
     CONF_QUEUE_LIMIT,
     DEFAULT_BATCH_SIZE,
     DEFAULT_FLUSH_INTERVAL,
     DEFAULT_QUEUE_LIMIT,
 )
-from .haeo_inputs import entity_ids_from_haeo_entries
+from .haeo_inputs import entity_ids_from_haeo_entry
 from .replay_client import ReplayWebSocketClient, StatePayload
 
 
@@ -70,7 +70,7 @@ class HaroForwarder:
         self.batch_size = int(entry.data.get(CONF_BATCH_SIZE, DEFAULT_BATCH_SIZE))
         self.flush_interval = float(entry.data.get(CONF_FLUSH_INTERVAL, DEFAULT_FLUSH_INTERVAL))
         self.queue_limit = int(entry.data.get(CONF_QUEUE_LIMIT, DEFAULT_QUEUE_LIMIT))
-        self.haeo_config_entry_ids = list(entry.data.get(CONF_HAEO_CONFIG_ENTRY_IDS, []))
+        self.haeo_config_entry_id = entry.data.get(CONF_HAEO_CONFIG_ENTRY_ID)
         self.entity_ids = self._selected_entities(entry.data.get(CONF_EXTRA_ENTITY_IDS, []))
         self.stats = ForwarderStats()
         self._queue: deque[StatePayload] = deque()
@@ -152,7 +152,7 @@ class HaroForwarder:
         entries = []
         if manager is not None and hasattr(manager, "async_entries"):
             entries = list(manager.async_entries("haeo"))
-        return selected_entity_ids(entity_ids_from_haeo_entries(entries, self.haeo_config_entry_ids), extras)
+        return selected_entity_ids(entity_ids_from_haeo_entry(entries, self.haeo_config_entry_id), extras)
 
     async def _run(self) -> None:
         while not self._stopped.is_set():

@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from homeassistant.const import Platform
+
 from .const import DOMAIN
 from .event_forwarder import HaroForwarder
 from .replay_client import ReplayWebSocketClient
@@ -14,6 +16,8 @@ if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
 
 type HaroConfigEntry = "ConfigEntry[HaroRuntimeData]"
+
+PLATFORMS = [Platform.SENSOR]
 
 
 @dataclass
@@ -30,12 +34,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     forwarder = HaroForwarder(hass, entry, client)
     entry.runtime_data = HaroRuntimeData(client=client, forwarder=forwarder)
     await forwarder.async_start()
+    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     entry.async_on_unload(forwarder.async_stop)
     return True
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload HARO."""
+    unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    if not unload_ok:
+        return False
     runtime = getattr(entry, "runtime_data", None)
     if runtime is not None:
         await runtime.forwarder.async_stop()

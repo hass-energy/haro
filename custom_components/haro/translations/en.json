@@ -5,6 +5,7 @@
         "title": "Connect HARO to Replay",
         "description": "HARO records selected HAEO input entities and streams them to Replay.",
         "data": {
+          "haeo_config_entry_id": "HAEO install",
           "replay_url": "Replay websocket URL",
           "token": "Replay site token"
         }
@@ -12,7 +13,11 @@
     },
     "error": {
       "cannot_connect": "Could not connect to Replay",
+      "invalid_haeo_entry": "Select an existing HAEO install",
       "invalid_auth": "Replay rejected the token"
+    },
+    "abort": {
+      "already_configured": "HARO is already configured for this HAEO install"
     }
   }
 }

@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
+from custom_components.haro.const import CONF_HAEO_CONFIG_ENTRY_ID
 from custom_components.haro.event_forwarder import HaroForwarder, payload_from_state, selected_entity_ids
 
 
@@ -52,6 +53,37 @@ class FakeHass:
     bus = FakeBus()
 
 
+@dataclass
+class FakeHaeoSubentry:
+    subentry_type: str
+    data: dict[str, Any]
+
+
+@dataclass
+class FakeHaeoEntry:
+    entry_id: str
+    subentries: dict[str, FakeHaeoSubentry]
+
+
+class FakeConfigEntries:
+    def async_entries(self, domain: str) -> list[FakeHaeoEntry]:
+        assert domain == "haeo"
+        return [
+            FakeHaeoEntry(
+                "selected",
+                {"battery": FakeHaeoSubentry("battery", {"soc": {"type": "entity", "value": ["sensor.soc"]}})},
+            ),
+            FakeHaeoEntry(
+                "other",
+                {"load": FakeHaeoSubentry("load", {"power": {"type": "entity", "value": ["sensor.other"]}})},
+            ),
+        ]
+
+
+class FakeHassWithHaeo(FakeHass):
+    config_entries = FakeConfigEntries()
+
+
 def test_selected_entity_ids_dedupes_haeo_inputs_and_extras() -> None:
     assert selected_entity_ids(["sensor.a", "sensor.b"], ["sensor.b", "sensor.c"]) == {
         "sensor.a",
@@ -81,3 +113,15 @@ def test_queue_drops_oldest_when_full() -> None:
 
     assert forwarder.diagnostics()["queued"] == 1
     assert forwarder.diagnostics()["dropped"] == 1
+
+
+def test_forwarder_uses_one_selected_haeo_entry() -> None:
+    entry = type(
+        "Entry",
+        (),
+        {"data": {CONF_HAEO_CONFIG_ENTRY_ID: "selected", "extra_entity_ids": [], "queue_limit": 1}},
+    )()
+
+    forwarder = HaroForwarder(FakeHassWithHaeo(), entry, FakeClient())  # type: ignore[arg-type]
+
+    assert forwarder.entity_ids == {"sensor.soc"}

@@ -28,18 +28,26 @@ class FakeWebSocket:
 
 
 def test_client_from_config_uses_default_replay_url() -> None:
-    client = ReplayWebSocketClient.from_config({"token": "token"})
+    client = ReplayWebSocketClient.from_config(
+        {"token": "token", "replay_site_id": "site-1", "haeo_config_entry_id": "haeo-entry"}
+    )
 
     assert client.url == DEFAULT_REPLAY_URL
     assert client.token == "token"
+    assert client.site_id == "site-1"
+    assert client.haeo_entry_id == "haeo-entry"
 
 
 def test_replay_client_factory_uses_default_replay_url() -> None:
-    client = replay_client_from_config({"token": "token"})
+    client = replay_client_from_config(
+        {"token": "token", "replay_site_id": "site-1", "haeo_config_entry_id": "haeo-entry"}
+    )
 
     assert isinstance(client, ReplayWebSocketClient)
     assert client.url == DEFAULT_REPLAY_URL
     assert client.token == "token"
+    assert client.site_id == "site-1"
+    assert client.haeo_entry_id == "haeo-entry"
 
 
 @pytest.mark.asyncio
@@ -64,11 +72,13 @@ async def test_client_uses_bearer_auth_and_waits_for_ack() -> None:
         calls.append((url, headers))
         return ws
 
-    client = ReplayWebSocketClient(DEFAULT_REPLAY_URL, "token", connect)
+    client = ReplayWebSocketClient(DEFAULT_REPLAY_URL, "token", "site-1", "haeo-entry", connect)
     ack = await client.send_states([{"entity_id": "sensor.energy", "time": "2026-01-01T00:00:00Z"}])
 
     assert calls == [(DEFAULT_REPLAY_URL, {"Authorization": "Bearer token"})]
     assert ws.sent[0]["type"] == "states"
+    assert ws.sent[0]["site_id"] == "site-1"
+    assert ws.sent[0]["haeo_entry_id"] == "haeo-entry"
     assert ack["type"] == "ack"
     assert client.stats.sent_batches == 1
     assert client.stats.sent_states == 1
@@ -81,7 +91,7 @@ async def test_client_reconnects_and_resends_unacked_batch() -> None:
     async def connect(url: str, headers: dict[str, str]) -> FakeWebSocket:
         return sockets.pop(0)
 
-    client = ReplayWebSocketClient(DEFAULT_REPLAY_URL, "token", connect)
+    client = ReplayWebSocketClient(DEFAULT_REPLAY_URL, "token", "site-1", "haeo-entry", connect)
     ack = await client.send_states([{"entity_id": "sensor.energy", "time": "2026-01-01T00:00:00Z"}])
 
     assert ack["type"] == "ack"

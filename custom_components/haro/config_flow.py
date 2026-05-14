@@ -13,27 +13,104 @@ except Exception:  # pragma: no cover - lets pure unit tests import the module w
     config_entries = None
     selector = None
 
-from .const import CONF_HAEO_CONFIG_ENTRY_ID, CONF_TOKEN, DEFAULT_REPLAY_URL, DOMAIN
-from .replay_client import ReplayWebSocketClient
+from .const import (
+    CONF_HAEO_CONFIG_ENTRY_ID,
+    CONF_REPLAY_SITE_ID,
+    CONF_REPLAY_SITE_NAME,
+    CONF_REPLAY_SITE_SLUG,
+    CONF_TOKEN,
+    DEFAULT_REPLAY_URL,
+    DOMAIN,
+)
 
 
-async def validate_replay_connection(replay_url: str, token: str) -> None:
-    """Require successful Replay websocket auth."""
-    client = ReplayWebSocketClient(replay_url, token)
-    await client.connect()
-    await client.close()
+def _setup_api_url(replay_url: str, path: str) -> str:
+    """Return the HTTP setup API URL for a Replay websocket URL."""
+    if replay_url.startswith("wss://"):
+        base = f"https://{replay_url[6:].rstrip('/')}"
+    elif replay_url.startswith("ws://"):
+        base = f"http://{replay_url[5:].rstrip('/')}"
+    else:
+        base = replay_url.rstrip("/")
+    return f"{base}/api/ingest/setup{path}"
+
+
+async def bind_replay_site(
+    replay_url: str,
+    token: str,
+    site_id: str,
+    haeo_entry_id: str,
+    *,
+    confirm: bool = False,
+) -> None:
+    """Bind the selected Replay site to this HAEO config entry."""
+    import aiohttp
+
+    async with (
+        aiohttp.ClientSession() as session,
+        session.post(
+            _setup_api_url(replay_url, f"/sites/{site_id}/bind"),
+            headers={"Authorization": f"Bearer {token}"},
+            json={"haeo_entry_id": haeo_entry_id, "confirm": confirm},
+        ) as response,
+    ):
+        if response.status >= 400:
+            raise RuntimeError(f"Replay setup failed: {response.status}")
+
+
+async def fetch_replay_sites(replay_url: str, token: str) -> list[dict[str, Any]]:
+    """Return Replay sites owned by the user token."""
+    import aiohttp
+
+    async with (
+        aiohttp.ClientSession() as session,
+        session.get(
+            _setup_api_url(replay_url, "/sites"),
+            headers={"Authorization": f"Bearer {token}"},
+        ) as response,
+    ):
+        if response.status >= 400:
+            raise RuntimeError(f"Replay setup failed: {response.status}")
+        payload = await response.json()
+        sites = payload.get("sites", [])
+        return sites if isinstance(sites, list) else []
+
+
+async def create_replay_site(replay_url: str, token: str, slug: str, name: str | None = None) -> dict[str, Any]:
+    """Create a Replay site owned by the user token."""
+    import aiohttp
+
+    async with (
+        aiohttp.ClientSession() as session,
+        session.post(
+            _setup_api_url(replay_url, "/sites"),
+            headers={"Authorization": f"Bearer {token}"},
+            json={"slug": slug, "name": name},
+        ) as response,
+    ):
+        if response.status >= 400:
+            raise RuntimeError(f"Replay setup failed: {response.status}")
+        payload = await response.json()
+        site = payload.get("site", {})
+        return site if isinstance(site, dict) else {}
 
 
 if config_entries is not None and vol is not None and selector is not None:
     _vol = vol
     _selector = selector
     NO_HAEO_ENTRY_OPTION = "__no_haeo_entries__"
+    CREATE_SITE_OPTION = "__create_site__"
 
     class HaroConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type: ignore[misc]
         """Handle a HARO config flow."""
 
         VERSION = 1
         MINOR_VERSION = 0
+
+        _token: str | None = None
+        _haeo_entry_id: str | None = None
+        _haeo_title: str | None = None
+        _sites: list[dict[str, Any]]
 
         async def async_step_user(self, user_input: dict[str, Any] | None = None) -> Any:
             """Create HARO config entry."""
@@ -52,13 +129,16 @@ if config_entries is not None and vol is not None and selector is not None:
 
                 try:
                     if not errors:
-                        await validate_replay_connection(DEFAULT_REPLAY_URL, str(user_input[CONF_TOKEN]))
+                        self._token = str(user_input[CONF_TOKEN])
+                        self._haeo_entry_id = selected_entry_id
+                        self._haeo_title = selected_entry.title if selected_entry is not None else selected_entry_id
+                        self._sites = await fetch_replay_sites(DEFAULT_REPLAY_URL, self._token)
                 except Exception:
                     if not errors:
                         errors["base"] = "cannot_connect"
                 else:
                     if not errors and selected_entry is not None:
-                        return self.async_create_entry(title=f"HARO - {selected_entry.title}", data=user_input)
+                        return await self.async_step_site()
 
             options = [
                 _selector.SelectOptionDict(value=entry.entry_id, label=entry.title or entry.entry_id)
@@ -76,6 +156,62 @@ if config_entries is not None and vol is not None and selector is not None:
                 }
             )
             return self.async_show_form(step_id="user", data_schema=schema, errors=errors)
+
+        async def async_step_site(self, user_input: dict[str, Any] | None = None) -> Any:
+            """Pick or create the Replay site to bind to this HAEO entry."""
+            errors: dict[str, str] = {}
+            token = self._token
+            haeo_entry_id = self._haeo_entry_id
+            if token is None or haeo_entry_id is None:
+                return await self.async_step_user()
+
+            if user_input is not None:
+                selected_site_id = str(user_input.get(CONF_REPLAY_SITE_ID, "")).strip()
+                try:
+                    if selected_site_id == CREATE_SITE_OPTION:
+                        slug = str(user_input.get(CONF_REPLAY_SITE_SLUG, "")).strip()
+                        name = str(user_input.get(CONF_REPLAY_SITE_NAME, "")).strip() or None
+                        if not slug:
+                            errors["base"] = "invalid_replay_site"
+                        else:
+                            site = await create_replay_site(DEFAULT_REPLAY_URL, token, slug, name)
+                            selected_site_id = str(site.get("id", "")).strip()
+                    if not errors:
+                        await bind_replay_site(DEFAULT_REPLAY_URL, token, selected_site_id, haeo_entry_id, confirm=True)
+                except Exception:
+                    if not errors:
+                        errors["base"] = "cannot_connect"
+                else:
+                    if not errors:
+                        title = self._haeo_title or haeo_entry_id
+                        return self.async_create_entry(
+                            title=f"HARO - {title}",
+                            data={
+                                CONF_HAEO_CONFIG_ENTRY_ID: haeo_entry_id,
+                                CONF_TOKEN: token,
+                                CONF_REPLAY_SITE_ID: selected_site_id,
+                            },
+                        )
+
+            options = [
+                _selector.SelectOptionDict(
+                    value=str(site.get("id")),
+                    label=str(site.get("name") or site.get("slug") or site.get("id")),
+                )
+                for site in getattr(self, "_sites", [])
+                if site.get("id")
+            ]
+            options.append(_selector.SelectOptionDict(value=CREATE_SITE_OPTION, label="Create a new Replay site"))
+            schema = _vol.Schema(
+                {
+                    _vol.Required(CONF_REPLAY_SITE_ID): _selector.SelectSelector(
+                        _selector.SelectSelectorConfig(options=options, mode=_selector.SelectSelectorMode.DROPDOWN)
+                    ),
+                    _vol.Optional(CONF_REPLAY_SITE_SLUG): str,
+                    _vol.Optional(CONF_REPLAY_SITE_NAME): str,
+                }
+            )
+            return self.async_show_form(step_id="site", data_schema=schema, errors=errors)
 
 else:
     HaroConfigFlow: Any

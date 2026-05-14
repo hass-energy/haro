@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from typing import Any, Protocol
 from uuid import uuid4
 
-from .const import CONF_TOKEN, DEFAULT_REPLAY_URL, REPLAY_URL_LOG_ONLY
+from .const import CONF_HAEO_CONFIG_ENTRY_ID, CONF_REPLAY_SITE_ID, CONF_TOKEN, DEFAULT_REPLAY_URL, REPLAY_URL_LOG_ONLY
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -57,6 +57,8 @@ class ReplayWebSocketClient:
 
     url: str
     token: str
+    site_id: str
+    haeo_entry_id: str
     connect_fn: ConnectFn | None = None
     stats: ReplayClientStats = field(default_factory=ReplayClientStats)
     _ws: Any | None = None
@@ -65,7 +67,12 @@ class ReplayWebSocketClient:
     @classmethod
     def from_config(cls, data: Mapping[str, Any]) -> ReplayWebSocketClient:
         """Create a client from config-entry data."""
-        return cls(url=DEFAULT_REPLAY_URL, token=str(data[CONF_TOKEN]))
+        return cls(
+            url=DEFAULT_REPLAY_URL,
+            token=str(data[CONF_TOKEN]),
+            site_id=str(data[CONF_REPLAY_SITE_ID]),
+            haeo_entry_id=str(data[CONF_HAEO_CONFIG_ENTRY_ID]),
+        )
 
     async def connect(self) -> None:
         """Connect to Replay using bearer auth."""
@@ -104,7 +111,15 @@ class ReplayWebSocketClient:
     async def _send_once(self, batch_id: str, states: list[StatePayload]) -> dict[str, Any]:
         await self.connect()
         assert self._ws is not None
-        await self._ws.send_json({"type": "states", "id": batch_id, "states": states})
+        await self._ws.send_json(
+            {
+                "type": "states",
+                "id": batch_id,
+                "site_id": self.site_id,
+                "haeo_entry_id": self.haeo_entry_id,
+                "states": states,
+            }
+        )
         while True:
             msg = await self._ws.receive_json()
             if msg.get("type") == "ack" and msg.get("id") == batch_id:
@@ -141,7 +156,12 @@ def replay_client_from_config(data: Mapping[str, Any], replay_url: str = DEFAULT
     """Create a Replay client from config-entry data and resolved Replay URL."""
     if replay_url == REPLAY_URL_LOG_ONLY:
         return LoggingReplayClient()
-    return ReplayWebSocketClient(url=replay_url, token=str(data[CONF_TOKEN]))
+    return ReplayWebSocketClient(
+        url=replay_url,
+        token=str(data[CONF_TOKEN]),
+        site_id=str(data[CONF_REPLAY_SITE_ID]),
+        haeo_entry_id=str(data[CONF_HAEO_CONFIG_ENTRY_ID]),
+    )
 
 
 async def _default_connect(url: str, headers: dict[str, str]) -> Any:

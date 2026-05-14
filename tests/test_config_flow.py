@@ -12,6 +12,9 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.haro.const import (
     CONF_HAEO_CONFIG_ENTRY_ID,
+    CONF_REPLAY_SITE_ID,
+    CONF_REPLAY_SITE_NAME,
+    CONF_REPLAY_SITE_SLUG,
     CONF_TOKEN,
     DEFAULT_REPLAY_URL,
     DOMAIN,
@@ -69,7 +72,10 @@ async def test_config_flow_requires_replay_validation(hass) -> None:  # type: ig
     module = importlib.import_module("custom_components.haro.config_flow")
     flow = create_flow(module, hass)
 
-    with patch("custom_components.haro.config_flow.validate_replay_connection", AsyncMock()) as validate:
+    with patch(
+        "custom_components.haro.config_flow.fetch_replay_sites",
+        AsyncMock(return_value=[{"id": "site-1", "slug": "home"}]),
+    ) as fetch:
         result = await flow.async_step_user(
             {
                 CONF_HAEO_CONFIG_ENTRY_ID: haeo_entry.entry_id,
@@ -77,11 +83,22 @@ async def test_config_flow_requires_replay_validation(hass) -> None:  # type: ig
             }
         )
 
-    validate.assert_awaited_once_with(DEFAULT_REPLAY_URL, "token")
-    assert result["type"] == "create_entry"
-    assert result["title"] == "HARO - Home Energy"
-    assert result["data"][CONF_HAEO_CONFIG_ENTRY_ID] == haeo_entry.entry_id
-    assert result["data"] == {CONF_HAEO_CONFIG_ENTRY_ID: haeo_entry.entry_id, CONF_TOKEN: "token"}
+    fetch.assert_awaited_once_with(DEFAULT_REPLAY_URL, "token")
+    assert result["type"] == "form"
+    assert result["step_id"] == "site"
+
+    with patch("custom_components.haro.config_flow.bind_replay_site", AsyncMock()) as bind:
+        created = await flow.async_step_site({CONF_REPLAY_SITE_ID: "site-1"})
+
+    bind.assert_awaited_once_with(DEFAULT_REPLAY_URL, "token", "site-1", haeo_entry.entry_id, confirm=True)
+    assert created["type"] == "create_entry"
+    assert created["title"] == "HARO - Home Energy"
+    assert created["data"][CONF_HAEO_CONFIG_ENTRY_ID] == haeo_entry.entry_id
+    assert created["data"] == {
+        CONF_HAEO_CONFIG_ENTRY_ID: haeo_entry.entry_id,
+        CONF_TOKEN: "token",
+        CONF_REPLAY_SITE_ID: "site-1",
+    }
     assert DOMAIN == "haro"
 
 
@@ -90,7 +107,7 @@ async def test_config_flow_rejects_no_haeo_placeholder(hass) -> None:  # type: i
     module = importlib.import_module("custom_components.haro.config_flow")
     flow = create_flow(module, hass)
 
-    with patch("custom_components.haro.config_flow.validate_replay_connection", AsyncMock()) as validate:
+    with patch("custom_components.haro.config_flow.fetch_replay_sites", AsyncMock()) as fetch:
         result = await flow.async_step_user(
             {
                 CONF_HAEO_CONFIG_ENTRY_ID: "__no_haeo_entries__",
@@ -98,7 +115,7 @@ async def test_config_flow_rejects_no_haeo_placeholder(hass) -> None:  # type: i
             }
         )
 
-    validate.assert_not_called()
+    fetch.assert_not_called()
     assert result["type"] == "form"
     assert result["errors"] == {"base": "invalid_haeo_entry"}
 
@@ -110,7 +127,7 @@ async def test_config_flow_rejects_duplicate_haeo_entry(hass) -> None:  # type: 
     module = importlib.import_module("custom_components.haro.config_flow")
     flow = create_flow(module, hass)
 
-    with patch("custom_components.haro.config_flow.validate_replay_connection", AsyncMock()):
+    with patch("custom_components.haro.config_flow.fetch_replay_sites", AsyncMock()):
         result = await flow.async_step_user(
             {
                 CONF_HAEO_CONFIG_ENTRY_ID: haeo_entry.entry_id,
@@ -120,3 +137,32 @@ async def test_config_flow_rejects_duplicate_haeo_entry(hass) -> None:  # type: 
 
     assert result["type"] == "abort"
     assert result["reason"] == "already_configured"
+
+
+@pytest.mark.asyncio
+async def test_config_flow_can_create_replay_site(hass) -> None:  # type: ignore[no-untyped-def]
+    haeo_entry = add_haeo_entry(hass)
+    module = importlib.import_module("custom_components.haro.config_flow")
+    flow = create_flow(module, hass)
+
+    with patch("custom_components.haro.config_flow.fetch_replay_sites", AsyncMock(return_value=[])):
+        await flow.async_step_user({CONF_HAEO_CONFIG_ENTRY_ID: haeo_entry.entry_id, CONF_TOKEN: "token"})
+    with (
+        patch(
+            "custom_components.haro.config_flow.create_replay_site",
+            AsyncMock(return_value={"id": "site-new"}),
+        ) as create,
+        patch("custom_components.haro.config_flow.bind_replay_site", AsyncMock()) as bind,
+    ):
+        result = await flow.async_step_site(
+            {
+                CONF_REPLAY_SITE_ID: "__create_site__",
+                CONF_REPLAY_SITE_SLUG: "home",
+                CONF_REPLAY_SITE_NAME: "Home",
+            }
+        )
+
+    create.assert_awaited_once_with(DEFAULT_REPLAY_URL, "token", "home", "Home")
+    bind.assert_awaited_once_with(DEFAULT_REPLAY_URL, "token", "site-new", haeo_entry.entry_id, confirm=True)
+    assert result["type"] == "create_entry"
+    assert result["data"][CONF_REPLAY_SITE_ID] == "site-new"

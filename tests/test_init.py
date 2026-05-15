@@ -9,7 +9,14 @@ from unittest.mock import AsyncMock, Mock, patch
 import pytest
 
 from custom_components.haro import async_remove_entry, async_setup, async_setup_entry
-from custom_components.haro.const import CONF_REPLAY_URL, DOMAIN, REPLAY_URL_LOG_ONLY
+from custom_components.haro.const import (
+    CONF_HAEO_CONFIG_ENTRY_ID,
+    CONF_REPLAY_SITE_ID,
+    CONF_REPLAY_URL,
+    CONF_TOKEN,
+    DOMAIN,
+    REPLAY_URL_LOG_ONLY,
+)
 
 
 class FakeBus:
@@ -82,6 +89,43 @@ async def test_async_setup_entry_stops_forwarder_on_home_assistant_stop() -> Non
     await bus.handler(None)
     forwarder.async_stop.assert_awaited_once()
     entry.async_on_unload.assert_any_call(bus.unsubscribe)
+
+
+@pytest.mark.asyncio
+async def test_async_setup_entry_repairs_legacy_entry_with_one_replay_site() -> None:
+    config_entries = SimpleNamespace(async_forward_entry_setups=AsyncMock())
+    config_entries.async_update_entry = Mock()
+    hass = SimpleNamespace(
+        data={DOMAIN: {CONF_REPLAY_URL: "wss://replay.example/ws"}},
+        bus=FakeBus(),
+        config_entries=config_entries,
+    )
+    entry = SimpleNamespace(
+        data={CONF_TOKEN: "token", CONF_HAEO_CONFIG_ENTRY_ID: "haeo-entry"},
+        async_on_unload=Mock(),
+    )
+    client = Mock()
+    forwarder = Mock()
+    forwarder.async_start = AsyncMock()
+
+    with (
+        patch("custom_components.haro.fetch_replay_sites", AsyncMock(return_value=[{"id": "site-1"}])) as fetch,
+        patch("custom_components.haro.bind_replay_site", AsyncMock()) as bind,
+        patch("custom_components.haro.replay_client_from_config", Mock(return_value=client)) as create_client,
+        patch("custom_components.haro.HaroForwarder", Mock(return_value=forwarder)),
+    ):
+        result = await async_setup_entry(hass, entry)  # type: ignore[arg-type]
+
+    repaired_data = {
+        CONF_TOKEN: "token",
+        CONF_HAEO_CONFIG_ENTRY_ID: "haeo-entry",
+        CONF_REPLAY_SITE_ID: "site-1",
+    }
+    assert result is True
+    fetch.assert_awaited_once_with("wss://replay.example/ws", "token")
+    bind.assert_awaited_once_with("wss://replay.example/ws", "token", "site-1", "haeo-entry", confirm=True)
+    config_entries.async_update_entry.assert_called_once_with(entry, data=repaired_data)
+    create_client.assert_called_once_with(repaired_data, "wss://replay.example/ws")
 
 
 @pytest.mark.asyncio

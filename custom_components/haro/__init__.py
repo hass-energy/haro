@@ -9,7 +9,16 @@ import homeassistant.helpers.config_validation as cv
 import voluptuous as vol
 from homeassistant.const import EVENT_HOMEASSISTANT_STOP, Platform
 
-from .const import CONF_REPLAY_URL, DEFAULT_REPLAY_URL, DOMAIN
+from .config_flow import bind_replay_site, fetch_replay_sites
+from .const import (
+    CONF_HAEO_CONFIG_ENTRY_ID,
+    CONF_REPLAY_SITE_ID,
+    CONF_REPLAY_URL,
+    CONF_TOKEN,
+    DEFAULT_REPLAY_URL,
+    DOMAIN,
+    REPLAY_URL_LOG_ONLY,
+)
 from .event_forwarder import HaroForwarder
 from .queue_log import QueueLog
 from .replay_client import ReplayClient, replay_client_from_config
@@ -51,7 +60,8 @@ async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up HARO from a config entry."""
     replay_url = hass.data.setdefault(DOMAIN, {}).get(CONF_REPLAY_URL, DEFAULT_REPLAY_URL)
-    client = replay_client_from_config(entry.data, replay_url)
+    data = await _data_with_replay_site(hass, entry, replay_url)
+    client = replay_client_from_config(data, replay_url)
     forwarder = HaroForwarder(hass, entry, client)
     entry.runtime_data = HaroRuntimeData(client=client, forwarder=forwarder)
     await forwarder.async_start()
@@ -62,6 +72,26 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     entry.async_on_unload(hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, _stop_forwarder_on_hass_stop))
     return True
+
+
+async def _data_with_replay_site(hass: HomeAssistant, entry: ConfigEntry, replay_url: str) -> dict[str, Any]:
+    """Repair legacy config entries that predate Replay site selection."""
+    data = dict(entry.data)
+    if replay_url == REPLAY_URL_LOG_ONLY or CONF_REPLAY_SITE_ID in data:
+        return data
+
+    token = str(data[CONF_TOKEN])
+    haeo_entry_id = str(data[CONF_HAEO_CONFIG_ENTRY_ID])
+    sites = await fetch_replay_sites(replay_url, token)
+    site_ids = [str(site.get("id", "")).strip() for site in sites if site.get("id")]
+    if len(site_ids) != 1:
+        raise RuntimeError("HARO config entry must be recreated to select a Replay site")
+
+    site_id = site_ids[0]
+    await bind_replay_site(replay_url, token, site_id, haeo_entry_id, confirm=True)
+    repaired = {**data, CONF_REPLAY_SITE_ID: site_id}
+    hass.config_entries.async_update_entry(entry, data=repaired)
+    return repaired
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

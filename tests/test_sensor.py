@@ -11,7 +11,12 @@ from homeassistant.const import EntityCategory
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.haro.const import DOMAIN
-from custom_components.haro.sensor import HaroDiagnosticSensor, async_setup_entry
+from custom_components.haro.sensor import (
+    SENSOR_DESCRIPTIONS,
+    HaroDiagnosticSensor,
+    HaroSensorDescription,
+    async_setup_entry,
+)
 
 ha = pytest.importorskip("homeassistant.components.sensor")
 
@@ -59,6 +64,20 @@ class FakeRuntime:
         self.site = FakeSiteInfo()
 
 
+def sensor_description(key: str) -> HaroSensorDescription:
+    return next(description for description in SENSOR_DESCRIPTIONS if description.key == key)
+
+
+def test_sensor_descriptions_drive_values_and_attributes() -> None:
+    assert {description.key for description in SENSOR_DESCRIPTIONS} == {
+        "replay_site",
+        "api_status",
+        "forwarding_queue",
+        "monitored_entities",
+    }
+    assert all(callable(description.value_fn) for description in SENSOR_DESCRIPTIONS)
+
+
 @pytest.mark.asyncio
 async def test_async_setup_entry_creates_diagnostic_sensors(hass) -> None:  # type: ignore[no-untyped-def]
     entry = MockConfigEntry(domain=DOMAIN, entry_id="haro-entry", title="HARO - Home Energy")
@@ -84,7 +103,7 @@ async def test_async_setup_entry_creates_diagnostic_sensors(hass) -> None:  # ty
 def test_replay_site_sensor_shows_site_name_and_ids() -> None:
     entry = MockConfigEntry(domain=DOMAIN, entry_id="haro-entry", title="HARO")
     runtime = FakeRuntime()
-    sensor = HaroDiagnosticSensor(entry, runtime, "replay_site")
+    sensor = HaroDiagnosticSensor(entry, runtime, sensor_description("replay_site"))
 
     assert sensor.unique_id == "haro-entry_replay_site"
     assert sensor.native_value == "Home"
@@ -97,7 +116,7 @@ def test_replay_site_sensor_shows_site_name_and_ids() -> None:
 def test_api_status_sensor_combines_forwarder_and_client_status() -> None:
     entry = MockConfigEntry(domain=DOMAIN, entry_id="haro-entry", title="HARO")
     runtime = FakeRuntime()
-    sensor = HaroDiagnosticSensor(entry, runtime, "api_status")
+    sensor = HaroDiagnosticSensor(entry, runtime, sensor_description("api_status"))
 
     assert sensor.unique_id == "haro-entry_api_status"
     assert sensor.native_value == "OK"
@@ -112,7 +131,7 @@ def test_api_status_sensor_combines_forwarder_and_client_status() -> None:
 def test_forwarding_queue_sensor_shows_depth_with_counter_attributes() -> None:
     entry = MockConfigEntry(domain=DOMAIN, entry_id="haro-entry", title="HARO")
     runtime = FakeRuntime()
-    sensor = HaroDiagnosticSensor(entry, runtime, "forwarding_queue")
+    sensor = HaroDiagnosticSensor(entry, runtime, sensor_description("forwarding_queue"))
 
     assert sensor.unique_id == "haro-entry_forwarding_queue"
     assert sensor.native_value == 2
@@ -131,7 +150,7 @@ def test_forwarding_queue_sensor_shows_depth_with_counter_attributes() -> None:
 def test_monitored_entities_sensor_counts_and_lists_entity_ids() -> None:
     entry = MockConfigEntry(domain=DOMAIN, entry_id="haro-entry", title="HARO")
     runtime = FakeRuntime()
-    sensor = HaroDiagnosticSensor(entry, runtime, "monitored_entities")
+    sensor = HaroDiagnosticSensor(entry, runtime, sensor_description("monitored_entities"))
 
     assert sensor.unique_id == "haro-entry_monitored_entities"
     assert sensor.native_value == 2

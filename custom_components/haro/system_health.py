@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 
-async def async_register(hass: Any, register: Any) -> None:
+def async_register(hass: Any, register: Any) -> None:
     """Register HARO system health information."""
 
     async def info_callback() -> dict[str, Any]:

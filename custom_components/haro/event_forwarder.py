@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import secrets
 from collections import deque
 from collections.abc import Iterable, Mapping
 from contextlib import suppress
@@ -20,9 +21,12 @@ from .const import (
     CONF_QUEUE_LIMIT,
     DEFAULT_BATCH_SIZE,
     DEFAULT_FLUSH_INTERVAL,
+    DEFAULT_LOG_SYNC_INTERVAL,
+    DEFAULT_MAX_BACKOFF,
     DEFAULT_QUEUE_LIMIT,
 )
 from .haeo_inputs import entity_ids_from_haeo_entry
+from .queue_log import QueueLog
 from .replay_client import ReplayClient, StatePayload
 
 
@@ -35,7 +39,43 @@ class ForwarderStats:
     sent: int = 0
     dropped: int = 0
     filtered: int = 0
+    backoff_seconds: float = 0.0
+    consecutive_failures: int = 0
     last_error: str | None = None
+
+
+@dataclass(slots=True)
+class Backoff:
+    """Capped exponential backoff for Replay retry delays."""
+
+    base: float
+    cap: float
+    jitter_ratio: float = 0.25
+    current_delay: float = 0.0
+    consecutive_failures: int = 0
+
+    def next_delay(self) -> float:
+        """Return the next capped delay and advance the sequence."""
+        delay = min(self.cap, self.base * (2**self.consecutive_failures))
+        self.consecutive_failures += 1
+        if self.jitter_ratio:
+            jitter = delay * self.jitter_ratio
+            delay = secrets.SystemRandom().uniform(max(0.0, delay - jitter), delay + jitter)
+        self.current_delay = min(self.cap, delay)
+        return self.current_delay
+
+    def reset(self) -> None:
+        """Reset the sequence after a successful flush."""
+        self.current_delay = 0.0
+        self.consecutive_failures = 0
+
+
+@dataclass(slots=True)
+class QueuedPayload:
+    """Payload waiting to be sent, plus whether it is already on disk."""
+
+    payload: StatePayload
+    logged: bool = False
 
 
 def json_safe(value: Any) -> Any:
@@ -95,29 +135,47 @@ def selected_entity_ids(haeo_inputs: Iterable[str], extras: Iterable[str]) -> se
 class HaroForwarder:
     """Collect selected HA states and send them to Replay."""
 
-    def __init__(self, hass: Any, entry: Any, client: ReplayClient) -> None:
+    def __init__(self, hass: Any, entry: Any, client: ReplayClient, queue_log: Any | None = None) -> None:
         self.hass = hass
         self.entry = entry
         self.client = client
         self.batch_size = int(entry.data.get(CONF_BATCH_SIZE, DEFAULT_BATCH_SIZE))
         self.flush_interval = float(entry.data.get(CONF_FLUSH_INTERVAL, DEFAULT_FLUSH_INTERVAL))
         self.queue_limit = int(entry.data.get(CONF_QUEUE_LIMIT, DEFAULT_QUEUE_LIMIT))
+        self.log_sync_interval = DEFAULT_LOG_SYNC_INTERVAL
+        self._backoff = Backoff(self.flush_interval, DEFAULT_MAX_BACKOFF)
         self.haeo_config_entry_id = entry.data.get(CONF_HAEO_CONFIG_ENTRY_ID)
         self.entity_ids = self._selected_entities(entry.data.get(CONF_EXTRA_ENTITY_IDS, []))
         self.stats = ForwarderStats()
-        self._queue: deque[StatePayload] = deque()
+        self._queue: deque[QueuedPayload] = deque()
+        self._log = queue_log if queue_log is not None else self._default_queue_log()
+        self._log_has_content = False
+        self._log_drifted = False
         self._task: asyncio.Task[None] | None = None
+        self._log_task: asyncio.Task[None] | None = None
         self._unsub_state_changes: Any | None = None
         self._unsub_haeo_updates: Any | None = None
         self._stopped = asyncio.Event()
 
+    def _default_queue_log(self) -> QueueLog | None:
+        entry_id = getattr(self.entry, "entry_id", None)
+        config = getattr(self.hass, "config", None)
+        if entry_id is None or config is None or not hasattr(config, "path"):
+            return None
+        if not hasattr(self.hass, "async_add_executor_job"):
+            return None
+        return QueueLog(self.hass, str(entry_id))
+
     async def async_start(self) -> None:
         """Start forwarding."""
         self._stopped.clear()
+        await self._restore_logged_queue()
         await self._enqueue_current_states()
         self._subscribe()
         self._subscribe_haeo_updates()
         self._task = asyncio.create_task(self._run())
+        if self._log is not None:
+            self._log_task = asyncio.create_task(self._log_run())
 
     async def async_stop(self) -> None:
         """Stop forwarding and close Replay connection."""
@@ -129,6 +187,12 @@ class HaroForwarder:
             with suppress(asyncio.CancelledError):
                 await self._task
             self._task = None
+        if self._log_task is not None:
+            self._log_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await self._log_task
+            self._log_task = None
+        await self._sync_log_once()
         await self.client.close()
 
     def diagnostics(self) -> dict[str, Any]:
@@ -139,6 +203,8 @@ class HaroForwarder:
             "sent": self.stats.sent,
             "dropped": self.stats.dropped,
             "filtered": self.stats.filtered,
+            "backoff_seconds": self.stats.backoff_seconds,
+            "consecutive_failures": self.stats.consecutive_failures,
             "last_error": self.stats.last_error,
         }
 
@@ -169,11 +235,12 @@ class HaroForwarder:
             if payload is not None:
                 self._append(payload)
 
-    def _append(self, payload: StatePayload) -> None:
+    def _append(self, payload: StatePayload, *, logged: bool = False) -> None:
         while len(self._queue) >= self.queue_limit:
             self._queue.popleft()
             self.stats.dropped += 1
-        self._queue.append(payload)
+            self._log_drifted = True
+        self._queue.append(QueuedPayload(payload, logged))
         self.stats.queued += 1
 
     def _subscribe(self) -> None:
@@ -225,19 +292,88 @@ class HaroForwarder:
     async def _run(self) -> None:
         while not self._stopped.is_set():
             await asyncio.sleep(self.flush_interval)
-            await self._flush_once()
+            try:
+                await self._flush_once()
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                self.stats.last_error = str(e)
+                delay = self._backoff.next_delay()
+                self.stats.backoff_seconds = delay
+                self.stats.consecutive_failures = self._backoff.consecutive_failures
+                await asyncio.sleep(delay)
+            else:
+                self._backoff.reset()
+                self.stats.backoff_seconds = self._backoff.current_delay
+                self.stats.consecutive_failures = self._backoff.consecutive_failures
+
+    async def _log_run(self) -> None:
+        while not self._stopped.is_set():
+            await asyncio.sleep(self.log_sync_interval)
+            await self._sync_log_once()
+
+    async def _restore_logged_queue(self) -> None:
+        if self._log is None:
+            return
+        payloads = await self._log.async_load()
+        self._log_has_content = bool(payloads)
+        for payload in payloads:
+            self._append(payload, logged=True)
+
+    async def _sync_log_once(self) -> None:
+        if self._log is None:
+            return
+        if self._log_drifted and self._queue:
+            try:
+                await self._log.async_rewrite([item.payload for item in self._queue])
+            except Exception as e:
+                self.stats.last_error = str(e)
+                return
+            for item in self._queue:
+                item.logged = True
+            self._log_has_content = True
+            self._log_drifted = False
+            return
+        unlogged = [item for item in self._queue if not item.logged]
+        if not unlogged:
+            return
+        try:
+            await self._log.async_append([item.payload for item in unlogged])
+        except Exception as e:
+            self.stats.last_error = str(e)
+            return
+        for item in unlogged:
+            item.logged = True
+        self._log_has_content = True
+
+    async def _truncate_log_if_synced(self) -> None:
+        if self._log is None or not self._log_has_content:
+            return
+        try:
+            await self._log.async_truncate()
+        except Exception as e:
+            self.stats.last_error = str(e)
+            return
+        self._log_has_content = False
+        self._log_drifted = False
 
     async def _flush_once(self) -> None:
         if not self._queue:
             return
-        batch: list[StatePayload] = []
+        batch: list[QueuedPayload] = []
         while self._queue and len(batch) < self.batch_size:
             batch.append(self._queue.popleft())
+        sent = False
         try:
-            await self.client.send_states(batch)
+            await self.client.send_states([item.payload for item in batch])
+            sent = True
             self.stats.sent += len(batch)
+            if not self._queue:
+                await self._truncate_log_if_synced()
         except Exception as e:
             self.stats.last_error = str(e)
-            for payload in reversed(batch):
-                self._queue.appendleft(payload)
             raise
+        finally:
+            if not sent:
+                for payload in reversed(batch):
+                    self._queue.appendleft(payload)

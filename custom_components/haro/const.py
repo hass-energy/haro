@@ -8,7 +8,6 @@ VERSION = "0.0.1rc4"
 
 CONF_TOKEN = "token"
 CONF_REPLAY_SITE_ID = "replay_site_id"
-CONF_REPLAY_SITE_SLUG = "replay_site_slug"
 CONF_REPLAY_SITE_NAME = "replay_site_name"
 CONF_REPLAY_URL = "replay_url"
 CONF_HAEO_CONFIG_ENTRY_ID = "haeo_config_entry_id"

@@ -14,7 +14,6 @@ from custom_components.haro.const import (
     CONF_HAEO_CONFIG_ENTRY_ID,
     CONF_REPLAY_SITE_ID,
     CONF_REPLAY_SITE_NAME,
-    CONF_REPLAY_SITE_SLUG,
     CONF_TOKEN,
     DEFAULT_REPLAY_URL,
     DOMAIN,
@@ -74,7 +73,7 @@ async def test_config_flow_requires_replay_validation(hass) -> None:  # type: ig
 
     with patch(
         "custom_components.haro.config_flow.fetch_replay_sites",
-        AsyncMock(return_value=[{"id": "site-1", "slug": "home"}]),
+        AsyncMock(return_value=[{"id": "site-1", "name": "Home"}]),
     ) as fetch:
         result = await flow.async_step_user(
             {
@@ -146,7 +145,9 @@ async def test_config_flow_can_create_replay_site(hass) -> None:  # type: ignore
     flow = create_flow(module, hass)
 
     with patch("custom_components.haro.config_flow.fetch_replay_sites", AsyncMock(return_value=[])):
-        await flow.async_step_user({CONF_HAEO_CONFIG_ENTRY_ID: haeo_entry.entry_id, CONF_TOKEN: "token"})
+        site_form = await flow.async_step_user({CONF_HAEO_CONFIG_ENTRY_ID: haeo_entry.entry_id, CONF_TOKEN: "token"})
+    site_fields = {key.schema for key in site_form["data_schema"].schema}
+    assert site_fields == {CONF_REPLAY_SITE_ID, CONF_REPLAY_SITE_NAME}
     with (
         patch(
             "custom_components.haro.config_flow.create_replay_site",
@@ -157,12 +158,11 @@ async def test_config_flow_can_create_replay_site(hass) -> None:  # type: ignore
         result = await flow.async_step_site(
             {
                 CONF_REPLAY_SITE_ID: "__create_site__",
-                CONF_REPLAY_SITE_SLUG: "home",
                 CONF_REPLAY_SITE_NAME: "Home",
             }
         )
 
-    create.assert_awaited_once_with(DEFAULT_REPLAY_URL, "token", "home", "Home")
+    create.assert_awaited_once_with(DEFAULT_REPLAY_URL, "token", "Home")
     bind.assert_awaited_once_with(DEFAULT_REPLAY_URL, "token", "site-new", haeo_entry.entry_id, confirm=True)
     assert result["type"] == "create_entry"
     assert result["data"][CONF_REPLAY_SITE_ID] == "site-new"

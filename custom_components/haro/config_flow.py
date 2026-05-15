@@ -17,7 +17,6 @@ from .const import (
     CONF_HAEO_CONFIG_ENTRY_ID,
     CONF_REPLAY_SITE_ID,
     CONF_REPLAY_SITE_NAME,
-    CONF_REPLAY_SITE_SLUG,
     CONF_TOKEN,
     DEFAULT_REPLAY_URL,
     DOMAIN,
@@ -76,7 +75,7 @@ async def fetch_replay_sites(replay_url: str, token: str) -> list[dict[str, Any]
         return sites if isinstance(sites, list) else []
 
 
-async def create_replay_site(replay_url: str, token: str, slug: str, name: str | None = None) -> dict[str, Any]:
+async def create_replay_site(replay_url: str, token: str, name: str) -> dict[str, Any]:
     """Create a Replay site owned by the user token."""
     import aiohttp
 
@@ -85,7 +84,7 @@ async def create_replay_site(replay_url: str, token: str, slug: str, name: str |
         session.post(
             _setup_api_url(replay_url, "/sites"),
             headers={"Authorization": f"Bearer {token}"},
-            json={"slug": slug, "name": name},
+            json={"name": name},
         ) as response,
     ):
         if response.status >= 400:
@@ -169,12 +168,11 @@ if config_entries is not None and vol is not None and selector is not None:
                 selected_site_id = str(user_input.get(CONF_REPLAY_SITE_ID, "")).strip()
                 try:
                     if selected_site_id == CREATE_SITE_OPTION:
-                        slug = str(user_input.get(CONF_REPLAY_SITE_SLUG, "")).strip()
-                        name = str(user_input.get(CONF_REPLAY_SITE_NAME, "")).strip() or None
-                        if not slug:
+                        name = str(user_input.get(CONF_REPLAY_SITE_NAME, "")).strip()
+                        if not name:
                             errors["base"] = "invalid_replay_site"
                         else:
-                            site = await create_replay_site(DEFAULT_REPLAY_URL, token, slug, name)
+                            site = await create_replay_site(DEFAULT_REPLAY_URL, token, name)
                             selected_site_id = str(site.get("id", "")).strip()
                     if not errors:
                         await bind_replay_site(DEFAULT_REPLAY_URL, token, selected_site_id, haeo_entry_id, confirm=True)
@@ -196,7 +194,7 @@ if config_entries is not None and vol is not None and selector is not None:
             options = [
                 _selector.SelectOptionDict(
                     value=str(site.get("id")),
-                    label=str(site.get("name") or site.get("slug") or site.get("id")),
+                    label=str(site.get("name") or site.get("id")),
                 )
                 for site in getattr(self, "_sites", [])
                 if site.get("id")
@@ -207,7 +205,6 @@ if config_entries is not None and vol is not None and selector is not None:
                     _vol.Required(CONF_REPLAY_SITE_ID): _selector.SelectSelector(
                         _selector.SelectSelectorConfig(options=options, mode=_selector.SelectSelectorMode.DROPDOWN)
                     ),
-                    _vol.Optional(CONF_REPLAY_SITE_SLUG): str,
                     _vol.Optional(CONF_REPLAY_SITE_NAME): str,
                 }
             )

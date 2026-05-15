@@ -210,6 +210,7 @@ class HaroForwarder:
             "sent": self.stats.sent,
             "dropped": self.stats.dropped,
             "queue_limit": self.queue_limit,
+            "logged_queued": sum(1 for item in self._queue if item.logged),
             "backoff_seconds": self.stats.backoff_seconds,
             "consecutive_failures": self.stats.consecutive_failures,
             "last_error": self.stats.last_error,

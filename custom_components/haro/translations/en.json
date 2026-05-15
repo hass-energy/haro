@@ -34,5 +34,21 @@
     "abort": {
       "already_configured": "HARO is already configured for this HAEO install"
     }
+  },
+  "entity": {
+    "sensor": {
+      "site": {
+        "name": "Site"
+      },
+      "api_status": {
+        "name": "API Status"
+      },
+      "queue": {
+        "name": "Queue"
+      },
+      "monitored_entities": {
+        "name": "Monitored Entities"
+      }
+    }
   }
 }

@@ -48,6 +48,7 @@ class FakeForwarder:
             "sent": 1,
             "dropped": 0,
             "queue_limit": 10_000,
+            "logged_queued": 1,
             "backoff_seconds": 0.0,
             "consecutive_failures": 0,
             "last_error": None,
@@ -70,10 +71,17 @@ def sensor_description(key: str) -> HaroSensorDescription:
 
 def test_sensor_descriptions_drive_values_and_attributes() -> None:
     assert {description.key for description in SENSOR_DESCRIPTIONS} == {
-        "replay_site",
+        "site",
         "api_status",
-        "forwarding_queue",
+        "queue",
         "monitored_entities",
+    }
+    assert not any(isinstance(description.name, str) for description in SENSOR_DESCRIPTIONS)
+    assert {description.key: description.translation_key for description in SENSOR_DESCRIPTIONS} == {
+        "site": "site",
+        "api_status": "api_status",
+        "queue": "queue",
+        "monitored_entities": "monitored_entities",
     }
     assert all(callable(description.value_fn) for description in SENSOR_DESCRIPTIONS)
 
@@ -89,9 +97,9 @@ async def test_async_setup_entry_creates_diagnostic_sensors(hass) -> None:  # ty
     add_entities.assert_called_once()
     sensors = add_entities.call_args.args[0]
     assert {sensor.entity_description.key for sensor in sensors} == {
-        "replay_site",
+        "site",
         "api_status",
-        "forwarding_queue",
+        "queue",
         "monitored_entities",
     }
     assert all(sensor.entity_category is EntityCategory.DIAGNOSTIC for sensor in sensors)
@@ -100,12 +108,12 @@ async def test_async_setup_entry_creates_diagnostic_sensors(hass) -> None:  # ty
     assert sensors[0].device_info["name"] == "HARO - Home Energy"
 
 
-def test_replay_site_sensor_shows_site_name_and_ids() -> None:
+def test_site_sensor_shows_site_name_and_ids() -> None:
     entry = MockConfigEntry(domain=DOMAIN, entry_id="haro-entry", title="HARO")
     runtime = FakeRuntime()
-    sensor = HaroDiagnosticSensor(entry, runtime, sensor_description("replay_site"))
+    sensor = HaroDiagnosticSensor(entry, runtime, sensor_description("site"))
 
-    assert sensor.unique_id == "haro-entry_replay_site"
+    assert sensor.unique_id == "haro-entry_site"
     assert sensor.native_value == "Home"
     assert sensor.extra_state_attributes == {
         "replay_site_id": "site-1",
@@ -128,18 +136,19 @@ def test_api_status_sensor_combines_forwarder_and_client_status() -> None:
     assert sensor.extra_state_attributes == {"status_code": 200}
 
 
-def test_forwarding_queue_sensor_shows_depth_with_counter_attributes() -> None:
+def test_queue_sensor_shows_depth_with_counter_attributes() -> None:
     entry = MockConfigEntry(domain=DOMAIN, entry_id="haro-entry", title="HARO")
     runtime = FakeRuntime()
-    sensor = HaroDiagnosticSensor(entry, runtime, sensor_description("forwarding_queue"))
+    sensor = HaroDiagnosticSensor(entry, runtime, sensor_description("queue"))
 
-    assert sensor.unique_id == "haro-entry_forwarding_queue"
+    assert sensor.unique_id == "haro-entry_queue"
     assert sensor.native_value == 2
     assert sensor.extra_state_attributes == {
         "received_total": 3,
         "sent_total": 1,
         "dropped_total": 0,
         "queue_limit": 10_000,
+        "logged_queued": 1,
     }
 
     runtime.forwarder.values["queued"] = 5

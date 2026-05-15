@@ -24,3 +24,13 @@ def test_config_flow_fields_have_human_labels() -> None:
     assert steps["site"]["data"][CONF_REPLAY_SITE_ID] == "Replay site"
     assert steps["site"]["data"][CONF_REPLAY_SITE_NAME] == "New site name"
     assert steps["site"]["data"]["replay_site_slug"] == "New site slug"
+
+
+def test_sensor_entities_have_human_labels() -> None:
+    translations = json.loads((ROOT / "custom_components/haro/translations/en.json").read_text())
+    sensors = translations["entity"]["sensor"]
+
+    assert sensors["site"]["name"] == "Site"
+    assert sensors["api_status"]["name"] == "API Status"
+    assert sensors["queue"]["name"] == "Queue"
+    assert sensors["monitored_entities"]["name"] == "Monitored Entities"

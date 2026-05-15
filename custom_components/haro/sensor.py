@@ -49,12 +49,12 @@ def _last_error(runtime: Any) -> str | None:
     return client_error if isinstance(client_error, str) and client_error else None
 
 
-def _replay_site_value(runtime: Any) -> StateType:
+def _site_value(runtime: Any) -> StateType:
     """Return the Replay site display name."""
     return getattr(runtime.site, "name", None)
 
 
-def _replay_site_attributes(runtime: Any) -> dict[str, Any]:
+def _site_attributes(runtime: Any) -> dict[str, Any]:
     """Return Replay site identity attributes."""
     return {
         "replay_site_id": getattr(runtime.site, "site_id", None),
@@ -73,12 +73,12 @@ def _api_status_attributes(runtime: Any) -> dict[str, Any]:
     return {"status_code": runtime.client.stats.status_code}
 
 
-def _forwarding_queue_value(runtime: Any) -> StateType:
+def _queue_value(runtime: Any) -> StateType:
     """Return the current forwarding queue depth."""
     return runtime.forwarder.diagnostics().get("queued")
 
 
-def _forwarding_queue_attributes(runtime: Any) -> dict[str, Any]:
+def _queue_attributes(runtime: Any) -> dict[str, Any]:
     """Return forwarding queue counters."""
     diagnostics = runtime.forwarder.diagnostics()
     return {
@@ -86,6 +86,7 @@ def _forwarding_queue_attributes(runtime: Any) -> dict[str, Any]:
         "sent_total": diagnostics.get("sent"),
         "dropped_total": diagnostics.get("dropped"),
         "queue_limit": diagnostics.get("queue_limit"),
+        "logged_queued": diagnostics.get("logged_queued"),
     }
 
 
@@ -101,26 +102,26 @@ def _monitored_entities_attributes(runtime: Any) -> dict[str, Any]:
 
 SENSOR_DESCRIPTIONS: tuple[HaroSensorDescription, ...] = (
     HaroSensorDescription(
-        key="replay_site",
-        name="Replay site",
-        value_fn=_replay_site_value,
-        attributes_fn=_replay_site_attributes,
+        key="site",
+        translation_key="site",
+        value_fn=_site_value,
+        attributes_fn=_site_attributes,
     ),
     HaroSensorDescription(
         key="api_status",
-        name="API status",
+        translation_key="api_status",
         value_fn=_api_status_value,
         attributes_fn=_api_status_attributes,
     ),
     HaroSensorDescription(
-        key="forwarding_queue",
-        name="Forwarding queue",
-        value_fn=_forwarding_queue_value,
-        attributes_fn=_forwarding_queue_attributes,
+        key="queue",
+        translation_key="queue",
+        value_fn=_queue_value,
+        attributes_fn=_queue_attributes,
     ),
     HaroSensorDescription(
         key="monitored_entities",
-        name="Monitored entities",
+        translation_key="monitored_entities",
         value_fn=_monitored_entities_value,
         attributes_fn=_monitored_entities_attributes,
     ),

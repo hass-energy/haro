@@ -252,7 +252,18 @@ def test_forwarder_diagnostics_exposes_queue_contract_without_filtered_counter()
     assert diagnostics["sent"] == 0
     assert diagnostics["dropped"] == 0
     assert diagnostics["queue_limit"] == 1
+    assert diagnostics["logged_queued"] == 0
     assert "filtered" not in diagnostics
+
+
+def test_forwarder_diagnostics_counts_logged_queued_payloads() -> None:
+    forwarder = HaroForwarder(FakeHass(), FakeEntry(), FakeClient())  # type: ignore[arg-type]
+
+    forwarder._append({"entity_id": "sensor.logged"}, logged=True)
+
+    diagnostics = forwarder.diagnostics()
+    assert diagnostics["queued"] == 1
+    assert diagnostics["logged_queued"] == 1
 
 
 def test_backoff_uses_capped_exponential_delays() -> None:

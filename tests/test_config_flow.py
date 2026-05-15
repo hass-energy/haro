@@ -200,7 +200,12 @@ async def test_config_flow_can_create_replay_site(hass) -> None:  # type: ignore
     with patch("custom_components.haro.config_flow.fetch_replay_sites", AsyncMock(return_value=[])):
         site_form = await flow.async_step_user({CONF_HAEO_CONFIG_ENTRY_ID: haeo_entry.entry_id, CONF_TOKEN: "token"})
     site_fields = {key.schema for key in site_form["data_schema"].schema}
-    assert site_fields == {CONF_REPLAY_SITE_ID, CONF_REPLAY_SITE_NAME}
+    assert site_fields == {CONF_REPLAY_SITE_ID}
+    create_site_form = await flow.async_step_site({CONF_REPLAY_SITE_ID: "__create_site__"})
+    create_site_fields = {key.schema for key in create_site_form["data_schema"].schema}
+    assert create_site_form["type"] == "form"
+    assert create_site_form["step_id"] == "create_site"
+    assert create_site_fields == {CONF_REPLAY_SITE_NAME}
     with (
         patch(
             "custom_components.haro.config_flow.create_replay_site",
@@ -208,9 +213,8 @@ async def test_config_flow_can_create_replay_site(hass) -> None:  # type: ignore
         ) as create,
         patch("custom_components.haro.config_flow.bind_replay_site", AsyncMock()) as bind,
     ):
-        result = await flow.async_step_site(
+        result = await flow.async_step_create_site(
             {
-                CONF_REPLAY_SITE_ID: "__create_site__",
                 CONF_REPLAY_SITE_NAME: "Home",
             }
         )

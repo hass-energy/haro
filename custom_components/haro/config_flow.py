@@ -175,30 +175,23 @@ if config_entries is not None and vol is not None and selector is not None:
 
             if user_input is not None:
                 selected_site_id = str(user_input.get(CONF_REPLAY_SITE_ID, "")).strip()
+                if selected_site_id == CREATE_SITE_OPTION:
+                    return await self.async_step_create_site()
                 try:
-                    if selected_site_id == CREATE_SITE_OPTION:
-                        name = str(user_input.get(CONF_REPLAY_SITE_NAME, "")).strip()
-                        if not name:
-                            errors["base"] = "invalid_replay_site"
-                        else:
-                            site = await create_replay_site(DEFAULT_REPLAY_URL, token, name)
-                            selected_site_id = str(site.get("id", "")).strip()
-                    if not errors:
-                        await bind_replay_site(DEFAULT_REPLAY_URL, token, selected_site_id, haeo_entry_id, confirm=True)
+                    await bind_replay_site(DEFAULT_REPLAY_URL, token, selected_site_id, haeo_entry_id, confirm=True)
                 except Exception:
                     if not errors:
                         errors["base"] = "cannot_connect"
                 else:
-                    if not errors:
-                        title = self._haeo_title or haeo_entry_id
-                        return self.async_create_entry(
-                            title=f"HARO - {title}",
-                            data={
-                                CONF_HAEO_CONFIG_ENTRY_ID: haeo_entry_id,
-                                CONF_TOKEN: token,
-                                CONF_REPLAY_SITE_ID: selected_site_id,
-                            },
-                        )
+                    title = self._haeo_title or haeo_entry_id
+                    return self.async_create_entry(
+                        title=f"HARO - {title}",
+                        data={
+                            CONF_HAEO_CONFIG_ENTRY_ID: haeo_entry_id,
+                            CONF_TOKEN: token,
+                            CONF_REPLAY_SITE_ID: selected_site_id,
+                        },
+                    )
 
             options = [
                 _selector.SelectOptionDict(
@@ -217,10 +210,43 @@ if config_entries is not None and vol is not None and selector is not None:
                     ): _selector.SelectSelector(
                         _selector.SelectSelectorConfig(options=options, mode=_selector.SelectSelectorMode.DROPDOWN)
                     ),
-                    _vol.Optional(CONF_REPLAY_SITE_NAME): str,
                 }
             )
             return self.async_show_form(step_id="site", data_schema=schema, errors=errors)
+
+        async def async_step_create_site(self, user_input: dict[str, Any] | None = None) -> Any:
+            """Create a Replay site before binding it to this HAEO entry."""
+            errors: dict[str, str] = {}
+            token = self._token
+            haeo_entry_id = self._haeo_entry_id
+            if token is None or haeo_entry_id is None:
+                return await self.async_step_user()
+
+            if user_input is not None:
+                name = str(user_input.get(CONF_REPLAY_SITE_NAME, "")).strip()
+                if not name:
+                    errors["base"] = "invalid_replay_site"
+                else:
+                    try:
+                        site = await create_replay_site(DEFAULT_REPLAY_URL, token, name)
+                        selected_site_id = str(site.get("id", "")).strip()
+                        await bind_replay_site(DEFAULT_REPLAY_URL, token, selected_site_id, haeo_entry_id, confirm=True)
+                    except Exception:
+                        if not errors:
+                            errors["base"] = "cannot_connect"
+                    else:
+                        title = self._haeo_title or haeo_entry_id
+                        return self.async_create_entry(
+                            title=f"HARO - {title}",
+                            data={
+                                CONF_HAEO_CONFIG_ENTRY_ID: haeo_entry_id,
+                                CONF_TOKEN: token,
+                                CONF_REPLAY_SITE_ID: selected_site_id,
+                            },
+                        )
+
+            schema = _vol.Schema({_vol.Required(CONF_REPLAY_SITE_NAME): str})
+            return self.async_show_form(step_id="create_site", data_schema=schema, errors=errors)
 
 else:
     HaroConfigFlow: Any

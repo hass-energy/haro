@@ -17,6 +17,13 @@
           "replay_site_name": "New site name",
           "replay_site_slug": "New site slug"
         }
+      },
+      "create_site": {
+        "title": "Create Replay site",
+        "description": "Name the Replay site that should receive HARO state updates.",
+        "data": {
+          "replay_site_name": "New site name"
+        }
       }
     },
     "error": {

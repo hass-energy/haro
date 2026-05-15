@@ -8,6 +8,15 @@
           "haeo_config_entry_id": "HAEO install",
           "token": "Replay site token"
         }
+      },
+      "site": {
+        "title": "Choose Replay site",
+        "description": "Select the Replay site that should receive HARO state updates, or create a new one.",
+        "data": {
+          "replay_site_id": "Replay site",
+          "replay_site_name": "New site name",
+          "replay_site_slug": "New site slug"
+        }
       }
     },
     "error": {

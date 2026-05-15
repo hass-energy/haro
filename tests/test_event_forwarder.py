@@ -238,7 +238,21 @@ def test_queue_drops_oldest_when_full() -> None:
     forwarder.handle_state_changed({"entity_id": "sensor.energy", "new_state": state})
 
     assert forwarder.diagnostics()["queued"] == 1
+    assert forwarder.diagnostics()["queue_limit"] == 1
     assert forwarder.diagnostics()["dropped"] == 1
+
+
+def test_forwarder_diagnostics_exposes_queue_contract_without_filtered_counter() -> None:
+    forwarder = HaroForwarder(FakeHass(), FakeEntry(), FakeClient())  # type: ignore[arg-type]
+
+    diagnostics = forwarder.diagnostics()
+
+    assert diagnostics["received"] == 0
+    assert diagnostics["queued"] == 0
+    assert diagnostics["sent"] == 0
+    assert diagnostics["dropped"] == 0
+    assert diagnostics["queue_limit"] == 1
+    assert "filtered" not in diagnostics
 
 
 def test_backoff_uses_capped_exponential_delays() -> None:
@@ -343,6 +357,23 @@ async def test_forwarder_resets_backoff_on_success() -> None:
     diagnostics = forwarder.diagnostics()
     assert diagnostics["consecutive_failures"] == 0
     assert diagnostics["backoff_seconds"] == 0.0
+
+
+async def test_forwarder_clears_last_error_after_recovered_flush() -> None:
+    entry = type("Entry", (), {"data": {"extra_entity_ids": ["sensor.energy"], "queue_limit": 10}})()
+    client = RecoveringClient(failures=1)
+    forwarder = HaroForwarder(FakeHass(), entry, client)  # type: ignore[arg-type]
+    state = FakeStates().get("sensor.energy")
+    assert state is not None
+    payload = payload_from_state("sensor.energy", state)
+    assert payload is not None
+    forwarder._append(payload)
+
+    with pytest.raises(ConnectionError, match="replay down"):
+        await forwarder._flush_once()
+    await forwarder._flush_once()
+
+    assert forwarder.diagnostics()["last_error"] is None
 
 
 async def test_forwarder_requeues_in_flight_batch_when_cancelled() -> None:

@@ -43,11 +43,21 @@ CONFIG_SCHEMA = vol.Schema(
 
 
 @dataclass
+class ReplaySiteInfo:
+    """Replay site metadata exposed by HARO diagnostics."""
+
+    name: str
+    site_id: str | None
+    haeo_config_entry_id: str | None
+
+
+@dataclass
 class HaroRuntimeData:
     """Runtime data owned by a HARO config entry."""
 
     client: ReplayClient
     forwarder: HaroForwarder
+    site: ReplaySiteInfo
 
 
 async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
@@ -60,10 +70,15 @@ async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up HARO from a config entry."""
     replay_url = hass.data.setdefault(DOMAIN, {}).get(CONF_REPLAY_URL, DEFAULT_REPLAY_URL)
-    data = await _data_with_replay_site(hass, entry, replay_url)
+    data, sites = await _data_with_replay_site(hass, entry, replay_url)
+    site = await _site_info_from_replay(data, replay_url, sites)
     client = replay_client_from_config(data, replay_url)
-    forwarder = HaroForwarder(hass, entry, client)
-    entry.runtime_data = HaroRuntimeData(client=client, forwarder=forwarder)
+
+    async def _refresh_site_info() -> None:
+        entry.runtime_data.site = await _site_info_from_replay(data, replay_url)
+
+    forwarder = HaroForwarder(hass, entry, client, on_replay_recovered=_refresh_site_info)
+    entry.runtime_data = HaroRuntimeData(client=client, forwarder=forwarder, site=site)
     await forwarder.async_start()
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
@@ -74,11 +89,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     return True
 
 
-async def _data_with_replay_site(hass: HomeAssistant, entry: ConfigEntry, replay_url: str) -> dict[str, Any]:
+async def _data_with_replay_site(
+    hass: HomeAssistant, entry: ConfigEntry, replay_url: str
+) -> tuple[dict[str, Any], list[dict[str, Any]] | None]:
     """Repair legacy config entries that predate Replay site selection."""
     data = dict(entry.data)
     if replay_url == REPLAY_URL_LOG_ONLY or CONF_REPLAY_SITE_ID in data:
-        return data
+        return data, None
 
     token = str(data[CONF_TOKEN])
     haeo_entry_id = str(data[CONF_HAEO_CONFIG_ENTRY_ID])
@@ -91,7 +108,32 @@ async def _data_with_replay_site(hass: HomeAssistant, entry: ConfigEntry, replay
     await bind_replay_site(replay_url, token, site_id, haeo_entry_id, confirm=True)
     repaired = {**data, CONF_REPLAY_SITE_ID: site_id}
     hass.config_entries.async_update_entry(entry, data=repaired)
-    return repaired
+    return repaired, sites
+
+
+async def _site_info_from_replay(
+    data: dict[str, Any], replay_url: str, sites: list[dict[str, Any]] | None = None
+) -> ReplaySiteInfo:
+    """Fetch the selected Replay site name for runtime diagnostics."""
+    site_id = data.get(CONF_REPLAY_SITE_ID)
+    haeo_entry_id = data.get(CONF_HAEO_CONFIG_ENTRY_ID)
+    if replay_url == REPLAY_URL_LOG_ONLY:
+        return ReplaySiteInfo(
+            name="Log only",
+            site_id=str(site_id) if site_id is not None else None,
+            haeo_config_entry_id=str(haeo_entry_id) if haeo_entry_id is not None else None,
+        )
+
+    token = str(data[CONF_TOKEN])
+    selected_site_id = str(data[CONF_REPLAY_SITE_ID])
+    available_sites = sites if sites is not None else await fetch_replay_sites(replay_url, token)
+    site = next((site for site in available_sites if str(site.get("id")) == selected_site_id), None)
+    name = selected_site_id if site is None else str(site.get("name") or selected_site_id)
+    return ReplaySiteInfo(
+        name=name,
+        site_id=selected_site_id,
+        haeo_config_entry_id=str(haeo_entry_id) if haeo_entry_id is not None else None,
+    )
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

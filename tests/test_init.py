@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
-from custom_components.haro import async_remove_entry, async_setup, async_setup_entry
+from custom_components.haro import ReplaySiteInfo, async_remove_entry, async_setup, async_setup_entry
 from custom_components.haro.const import (
     CONF_HAEO_CONFIG_ENTRY_ID,
     CONF_REPLAY_SITE_ID,
@@ -63,6 +63,88 @@ async def test_async_setup_entry_uses_yaml_replay_url() -> None:
     create_client.assert_called_once_with(entry.data, REPLAY_URL_LOG_ONLY)
     forwarder.async_start.assert_awaited_once()
     hass.config_entries.async_forward_entry_setups.assert_awaited_once()
+    assert entry.runtime_data.site == ReplaySiteInfo(name="Log only", site_id=None, haeo_config_entry_id=None)
+
+
+@pytest.mark.asyncio
+async def test_async_setup_entry_fetches_selected_replay_site_name() -> None:
+    hass = SimpleNamespace(
+        data={DOMAIN: {CONF_REPLAY_URL: "wss://replay.example/ws"}},
+        bus=FakeBus(),
+        config_entries=SimpleNamespace(async_forward_entry_setups=AsyncMock()),
+    )
+    entry = SimpleNamespace(
+        data={
+            CONF_TOKEN: "token",
+            CONF_REPLAY_SITE_ID: "site-1",
+            CONF_HAEO_CONFIG_ENTRY_ID: "haeo-entry",
+        },
+        async_on_unload=Mock(),
+    )
+    forwarder = Mock()
+    forwarder.async_start = AsyncMock()
+
+    with (
+        patch(
+            "custom_components.haro.fetch_replay_sites", AsyncMock(return_value=[{"id": "site-1", "name": "Home"}])
+        ) as fetch,
+        patch("custom_components.haro.replay_client_from_config", Mock()),
+        patch("custom_components.haro.HaroForwarder", Mock(return_value=forwarder)),
+    ):
+        await async_setup_entry(hass, entry)  # type: ignore[arg-type]
+
+    fetch.assert_awaited_once_with("wss://replay.example/ws", "token")
+    assert entry.runtime_data.site == ReplaySiteInfo(
+        name="Home",
+        site_id="site-1",
+        haeo_config_entry_id="haeo-entry",
+    )
+
+
+@pytest.mark.asyncio
+async def test_async_setup_entry_refreshes_replay_site_name_after_recovery() -> None:
+    hass = SimpleNamespace(
+        data={DOMAIN: {CONF_REPLAY_URL: "wss://replay.example/ws"}},
+        bus=FakeBus(),
+        config_entries=SimpleNamespace(async_forward_entry_setups=AsyncMock()),
+    )
+    entry = SimpleNamespace(
+        data={
+            CONF_TOKEN: "token",
+            CONF_REPLAY_SITE_ID: "site-1",
+            CONF_HAEO_CONFIG_ENTRY_ID: "haeo-entry",
+        },
+        async_on_unload=Mock(),
+    )
+    forwarder = Mock()
+    forwarder.async_start = AsyncMock()
+    created_forwarder: Mock | None = None
+
+    def create_forwarder(*args, **kwargs):  # type: ignore[no-untyped-def]
+        nonlocal created_forwarder
+        created_forwarder = Mock()
+        created_forwarder.async_start = AsyncMock()
+        created_forwarder.on_replay_recovered = kwargs["on_replay_recovered"]
+        return created_forwarder
+
+    with (
+        patch(
+            "custom_components.haro.fetch_replay_sites",
+            AsyncMock(
+                side_effect=[
+                    [{"id": "site-1", "name": "Home"}],
+                    [{"id": "site-1", "name": "Updated Home"}],
+                ]
+            ),
+        ),
+        patch("custom_components.haro.replay_client_from_config", Mock()),
+        patch("custom_components.haro.HaroForwarder", create_forwarder),
+    ):
+        await async_setup_entry(hass, entry)  # type: ignore[arg-type]
+        assert created_forwarder is not None
+        await created_forwarder.on_replay_recovered()
+
+    assert entry.runtime_data.site.name == "Updated Home"
 
 
 @pytest.mark.asyncio

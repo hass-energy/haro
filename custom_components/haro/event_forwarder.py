@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import secrets
 from collections import deque
-from collections.abc import Iterable, Mapping
+from collections.abc import Awaitable, Callable, Iterable, Mapping
 from contextlib import suppress
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -35,10 +35,8 @@ class ForwarderStats:
     """Forwarder counters exposed through diagnostics."""
 
     received: int = 0
-    queued: int = 0
     sent: int = 0
     dropped: int = 0
-    filtered: int = 0
     backoff_seconds: float = 0.0
     consecutive_failures: int = 0
     last_error: str | None = None
@@ -135,7 +133,14 @@ def selected_entity_ids(haeo_inputs: Iterable[str], extras: Iterable[str]) -> se
 class HaroForwarder:
     """Collect selected HA states and send them to Replay."""
 
-    def __init__(self, hass: Any, entry: Any, client: ReplayClient, queue_log: Any | None = None) -> None:
+    def __init__(
+        self,
+        hass: Any,
+        entry: Any,
+        client: ReplayClient,
+        queue_log: Any | None = None,
+        on_replay_recovered: Callable[[], Awaitable[None]] | None = None,
+    ) -> None:
         self.hass = hass
         self.entry = entry
         self.client = client
@@ -156,6 +161,8 @@ class HaroForwarder:
         self._unsub_state_changes: Any | None = None
         self._unsub_haeo_updates: Any | None = None
         self._stopped = asyncio.Event()
+        self.on_replay_recovered = on_replay_recovered
+        self._last_seen_reconnects = self._client_reconnects()
 
     def _default_queue_log(self) -> QueueLog | None:
         entry_id = getattr(self.entry, "entry_id", None)
@@ -202,7 +209,7 @@ class HaroForwarder:
             "queued": len(self._queue),
             "sent": self.stats.sent,
             "dropped": self.stats.dropped,
-            "filtered": self.stats.filtered,
+            "queue_limit": self.queue_limit,
             "backoff_seconds": self.stats.backoff_seconds,
             "consecutive_failures": self.stats.consecutive_failures,
             "last_error": self.stats.last_error,
@@ -214,7 +221,6 @@ class HaroForwarder:
         data = getattr(event, "data", event)
         entity_id = data.get("entity_id")
         if entity_id not in self.entity_ids:
-            self.stats.filtered += 1
             return
         state = data.get("new_state")
         if state is None:
@@ -241,7 +247,6 @@ class HaroForwarder:
             self.stats.dropped += 1
             self._log_drifted = True
         self._queue.append(QueuedPayload(payload, logged))
-        self.stats.queued += 1
 
     def _subscribe(self) -> None:
         self._unsubscribe_state_changes()
@@ -357,6 +362,18 @@ class HaroForwarder:
         self._log_has_content = False
         self._log_drifted = False
 
+    def _client_reconnects(self) -> int:
+        stats = getattr(self.client, "stats", None)
+        reconnects = getattr(stats, "reconnects", 0)
+        return reconnects if isinstance(reconnects, int) else 0
+
+    async def _refresh_replay_site_after_recovery(self, had_error: bool) -> None:
+        reconnects = self._client_reconnects()
+        reconnected = reconnects != self._last_seen_reconnects
+        self._last_seen_reconnects = reconnects
+        if self.on_replay_recovered is not None and (had_error or reconnected):
+            await self.on_replay_recovered()
+
     async def _flush_once(self) -> None:
         if not self._queue:
             return
@@ -364,10 +381,13 @@ class HaroForwarder:
         while self._queue and len(batch) < self.batch_size:
             batch.append(self._queue.popleft())
         sent = False
+        had_error = self.stats.last_error is not None
         try:
             await self.client.send_states([item.payload for item in batch])
             sent = True
             self.stats.sent += len(batch)
+            self.stats.last_error = None
+            await self._refresh_replay_site_after_recovery(had_error)
             if not self._queue:
                 await self._truncate_log_if_synced()
         except Exception as e:

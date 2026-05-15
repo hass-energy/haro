@@ -61,6 +61,7 @@ async def test_log_only_client_acknowledges_without_websocket() -> None:
     assert ack == {"inserted": 1}
     assert client.stats.sent_batches == 1
     assert client.stats.sent_states == 1
+    assert client.stats.status_code == 200
 
 
 @pytest.mark.asyncio
@@ -82,6 +83,7 @@ async def test_client_uses_bearer_auth_and_waits_for_ack() -> None:
     assert ack["type"] == "ack"
     assert client.stats.sent_batches == 1
     assert client.stats.sent_states == 1
+    assert client.stats.status_code == 200
 
 
 @pytest.mark.asyncio
@@ -96,4 +98,6 @@ async def test_client_reconnects_and_resends_unacked_batch() -> None:
 
     assert ack["type"] == "ack"
     assert client.stats.reconnects == 1
+    assert client.stats.last_error is None
+    assert client.stats.status_code == 200
     assert sockets == []

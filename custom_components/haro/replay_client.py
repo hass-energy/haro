@@ -49,6 +49,7 @@ class ReplayClientStats:
     reconnects: int = 0
     last_ack_id: str | None = None
     last_error: str | None = None
+    status_code: int | None = None
 
 
 @dataclass
@@ -102,6 +103,7 @@ class ReplayWebSocketClient:
                     return await self._send_once(batch_id, states)
                 except Exception as e:
                     self.stats.last_error = str(e)
+                    self.stats.status_code = None
                     await self.close()
                     if attempt > 0:
                         raise
@@ -126,9 +128,13 @@ class ReplayWebSocketClient:
                 self.stats.sent_batches += 1
                 self.stats.sent_states += len(states)
                 self.stats.last_ack_id = batch_id
+                self.stats.last_error = None
+                self.stats.status_code = 200
                 return msg
             if msg.get("type") == "error":
                 self.stats.last_error = str(msg.get("error", "unknown"))
+                status_code = msg.get("status_code")
+                self.stats.status_code = status_code if isinstance(status_code, int) else None
                 raise ReplayClientError(self.stats.last_error)
 
 
@@ -149,6 +155,7 @@ class LoggingReplayClient:
         _LOGGER.info("HARO log_only Replay received %s states: %s", len(states), states)
         self.stats.sent_batches += 1
         self.stats.sent_states += len(states)
+        self.stats.status_code = 200
         return {"inserted": len(states)}
 
 

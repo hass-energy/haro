@@ -100,6 +100,15 @@ if config_entries is not None and vol is not None and selector is not None:
     NO_HAEO_ENTRY_OPTION = "__no_haeo_entries__"
     CREATE_SITE_OPTION = "__create_site__"
 
+    def _site_id_matching_haeo_entry(sites: list[dict[str, Any]], haeo_entry_id: str) -> str | None:
+        """Return the Replay site already bound to the selected HAEO entry."""
+        for site in sites:
+            if str(site.get("haeo_entry_id", "")) == haeo_entry_id:
+                site_id = str(site.get("id", "")).strip()
+                if site_id:
+                    return site_id
+        return None
+
     class HaroConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type: ignore[misc]
         """Handle a HARO config flow."""
 
@@ -200,9 +209,12 @@ if config_entries is not None and vol is not None and selector is not None:
                 if site.get("id")
             ]
             options.append(_selector.SelectOptionDict(value=CREATE_SITE_OPTION, label="Create a new Replay site"))
+            default_site_id = _site_id_matching_haeo_entry(getattr(self, "_sites", []), haeo_entry_id)
             schema = _vol.Schema(
                 {
-                    _vol.Required(CONF_REPLAY_SITE_ID): _selector.SelectSelector(
+                    _vol.Required(
+                        CONF_REPLAY_SITE_ID, default=default_site_id or CREATE_SITE_OPTION
+                    ): _selector.SelectSelector(
                         _selector.SelectSelectorConfig(options=options, mode=_selector.SelectSelectorMode.DROPDOWN)
                     ),
                     _vol.Optional(CONF_REPLAY_SITE_NAME): str,

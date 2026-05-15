@@ -36,6 +36,10 @@ def create_flow(module, hass):  # type: ignore[no-untyped-def]
     return flow
 
 
+def schema_key(schema, field: str):  # type: ignore[no-untyped-def]
+    return next(key for key in schema.schema if key.schema == field)
+
+
 @pytest.mark.asyncio
 async def test_config_flow_does_not_show_replay_url(hass) -> None:  # type: ignore[no-untyped-def]
     add_haeo_entry(hass)
@@ -99,6 +103,55 @@ async def test_config_flow_requires_replay_validation(hass) -> None:  # type: ig
         CONF_REPLAY_SITE_ID: "site-1",
     }
     assert DOMAIN == "haro"
+
+
+@pytest.mark.asyncio
+async def test_config_flow_defaults_site_matching_selected_haeo_entry(hass) -> None:  # type: ignore[no-untyped-def]
+    haeo_entry = add_haeo_entry(hass)
+    module = importlib.import_module("custom_components.haro.config_flow")
+    flow = create_flow(module, hass)
+
+    with patch(
+        "custom_components.haro.config_flow.fetch_replay_sites",
+        AsyncMock(
+            return_value=[
+                {"id": "site-other", "name": "Other", "haeo_entry_id": "other-haeo-entry"},
+                {"id": "site-home", "name": "Home", "haeo_entry_id": haeo_entry.entry_id},
+            ]
+        ),
+    ):
+        result = await flow.async_step_user(
+            {
+                CONF_HAEO_CONFIG_ENTRY_ID: haeo_entry.entry_id,
+                CONF_TOKEN: "token",
+            }
+        )
+
+    replay_site_key = schema_key(result["data_schema"], CONF_REPLAY_SITE_ID)
+
+    assert replay_site_key.default() == "site-home"
+
+
+@pytest.mark.asyncio
+async def test_config_flow_defaults_to_create_site_when_no_site_matches_selected_haeo_entry(hass) -> None:  # type: ignore[no-untyped-def]
+    haeo_entry = add_haeo_entry(hass)
+    module = importlib.import_module("custom_components.haro.config_flow")
+    flow = create_flow(module, hass)
+
+    with patch(
+        "custom_components.haro.config_flow.fetch_replay_sites",
+        AsyncMock(return_value=[{"id": "site-other", "name": "Other", "haeo_entry_id": "other-haeo-entry"}]),
+    ):
+        result = await flow.async_step_user(
+            {
+                CONF_HAEO_CONFIG_ENTRY_ID: haeo_entry.entry_id,
+                CONF_TOKEN: "token",
+            }
+        )
+
+    replay_site_key = schema_key(result["data_schema"], CONF_REPLAY_SITE_ID)
+
+    assert replay_site_key.default() == "__create_site__"
 
 
 @pytest.mark.asyncio

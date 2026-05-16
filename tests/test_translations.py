@@ -33,4 +33,12 @@ def test_sensor_entities_have_human_labels() -> None:
     assert sensors["site"]["name"] == "Site"
     assert sensors["api_status"]["name"] == "API Status"
     assert sensors["queue"]["name"] == "Queue"
-    assert sensors["monitored_entities"]["name"] == "Monitored Entities"
+    assert sensors["recorded_entities"]["name"] == "Recorded Entities"
+
+
+def test_sensor_entities_have_icons() -> None:
+    icons = json.loads((ROOT / "custom_components/haro/icons.json").read_text())
+    sensors = icons["entity"]["sensor"]
+
+    assert set(sensors) == {"site", "api_status", "queue", "recorded_entities"}
+    assert all(icon["default"].startswith("mdi:") for icon in sensors.values())

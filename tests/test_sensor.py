@@ -7,6 +7,7 @@ from typing import Any
 from unittest.mock import Mock
 
 import pytest
+from homeassistant.components.sensor import SensorStateClass
 from homeassistant.const import EntityCategory
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
@@ -74,16 +75,30 @@ def test_sensor_descriptions_drive_values_and_attributes() -> None:
         "site",
         "api_status",
         "queue",
-        "monitored_entities",
+        "recorded_entities",
     }
     assert not any(isinstance(description.name, str) for description in SENSOR_DESCRIPTIONS)
     assert {description.key: description.translation_key for description in SENSOR_DESCRIPTIONS} == {
         "site": "site",
         "api_status": "api_status",
         "queue": "queue",
-        "monitored_entities": "monitored_entities",
+        "recorded_entities": "recorded_entities",
     }
+    assert not any(description.icon for description in SENSOR_DESCRIPTIONS)
     assert all(callable(description.value_fn) for description in SENSOR_DESCRIPTIONS)
+
+
+def test_sensor_descriptions_include_units_and_classes() -> None:
+    descriptions = {description.key: description for description in SENSOR_DESCRIPTIONS}
+
+    assert descriptions["api_status"].device_class is None
+    assert descriptions["api_status"].options is None
+
+    assert descriptions["queue"].native_unit_of_measurement == "states"
+    assert descriptions["queue"].state_class is SensorStateClass.MEASUREMENT
+
+    assert descriptions["recorded_entities"].native_unit_of_measurement == "entities"
+    assert descriptions["recorded_entities"].state_class is SensorStateClass.MEASUREMENT
 
 
 @pytest.mark.asyncio
@@ -100,7 +115,7 @@ async def test_async_setup_entry_creates_diagnostic_sensors(hass) -> None:  # ty
         "site",
         "api_status",
         "queue",
-        "monitored_entities",
+        "recorded_entities",
     }
     assert all(sensor.entity_category is EntityCategory.DIAGNOSTIC for sensor in sensors)
     assert all(sensor.device_info == sensors[0].device_info for sensor in sensors)
@@ -121,7 +136,7 @@ def test_site_sensor_shows_site_name_and_ids() -> None:
     }
 
 
-def test_api_status_sensor_combines_forwarder_and_client_status() -> None:
+def test_api_status_sensor_labels_replay_http_status_code() -> None:
     entry = MockConfigEntry(domain=DOMAIN, entry_id="haro-entry", title="HARO")
     runtime = FakeRuntime()
     sensor = HaroDiagnosticSensor(entry, runtime, sensor_description("api_status"))
@@ -130,10 +145,21 @@ def test_api_status_sensor_combines_forwarder_and_client_status() -> None:
     assert sensor.native_value == "OK"
     assert sensor.extra_state_attributes == {"status_code": 200}
 
-    runtime.forwarder.values["last_error"] = "boom"
+    runtime.client.stats.status_code = 401
+    assert sensor.native_value == "Unauthorized"
 
-    assert sensor.native_value == "Error"
-    assert sensor.extra_state_attributes == {"status_code": 200}
+    runtime.client.stats.status_code = 404
+    assert sensor.native_value == "Not Found"
+
+    runtime.client.stats.status_code = 500
+    assert sensor.native_value == "Internal Server Error"
+
+    runtime.client.stats.status_code = 999
+    assert sensor.native_value == "Unknown Error"
+
+    runtime.client.stats.status_code = None
+    assert sensor.native_value is None
+    assert sensor.extra_state_attributes == {"status_code": None}
 
 
 def test_queue_sensor_shows_depth_with_counter_attributes() -> None:
@@ -156,11 +182,11 @@ def test_queue_sensor_shows_depth_with_counter_attributes() -> None:
     assert sensor.native_value == 5
 
 
-def test_monitored_entities_sensor_counts_and_lists_entity_ids() -> None:
+def test_recorded_entities_sensor_counts_and_lists_entity_ids() -> None:
     entry = MockConfigEntry(domain=DOMAIN, entry_id="haro-entry", title="HARO")
     runtime = FakeRuntime()
-    sensor = HaroDiagnosticSensor(entry, runtime, sensor_description("monitored_entities"))
+    sensor = HaroDiagnosticSensor(entry, runtime, sensor_description("recorded_entities"))
 
-    assert sensor.unique_id == "haro-entry_monitored_entities"
+    assert sensor.unique_id == "haro-entry_recorded_entities"
     assert sensor.native_value == 2
     assert sensor.extra_state_attributes == {"entity_ids": ["sensor.a", "sensor.b"]}

@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from http import HTTPStatus
 from typing import TYPE_CHECKING, Any, Protocol
 
-from homeassistant.components.sensor import SensorEntity, SensorEntityDescription
+from homeassistant.components.sensor import SensorEntity, SensorEntityDescription, SensorStateClass
 from homeassistant.const import EntityCategory
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.typing import StateType
@@ -40,13 +41,14 @@ class HaroSensorDescription(SensorEntityDescription):
     attributes_fn: Callable[[Any], dict[str, Any] | None] | None = None
 
 
-def _last_error(runtime: Any) -> str | None:
-    """Return the most relevant error from the forwarder or Replay client."""
-    forwarder_error = runtime.forwarder.diagnostics().get("last_error")
-    if isinstance(forwarder_error, str) and forwarder_error:
-        return forwarder_error
-    client_error = runtime.client.stats.last_error
-    return client_error if isinstance(client_error, str) and client_error else None
+def _http_status_label(status_code: int | None) -> str | None:
+    """Return the human-readable phrase for an HTTP status code."""
+    if status_code is None:
+        return None
+    try:
+        return HTTPStatus(status_code).phrase
+    except ValueError:
+        return "Unknown Error"
 
 
 def _site_value(runtime: Any) -> StateType:
@@ -63,9 +65,8 @@ def _site_attributes(runtime: Any) -> dict[str, Any]:
 
 
 def _api_status_value(runtime: Any) -> StateType:
-    """Return OK when Replay forwarding is healthy, otherwise Error."""
-    diagnostics = runtime.forwarder.diagnostics()
-    return "Error" if _last_error(runtime) or diagnostics.get("consecutive_failures", 0) else "OK"
+    """Return a human-readable HTTP status label for the most recent Replay reply."""
+    return _http_status_label(runtime.client.stats.status_code)
 
 
 def _api_status_attributes(runtime: Any) -> dict[str, Any]:
@@ -90,13 +91,13 @@ def _queue_attributes(runtime: Any) -> dict[str, Any]:
     }
 
 
-def _monitored_entities_value(runtime: Any) -> StateType:
-    """Return the monitored entity count."""
+def _recorded_entities_value(runtime: Any) -> StateType:
+    """Return the recorded entity count."""
     return len(runtime.forwarder.entity_ids)
 
 
-def _monitored_entities_attributes(runtime: Any) -> dict[str, Any]:
-    """Return monitored entity IDs."""
+def _recorded_entities_attributes(runtime: Any) -> dict[str, Any]:
+    """Return recorded entity IDs."""
     return {"entity_ids": sorted(runtime.forwarder.entity_ids)}
 
 
@@ -116,14 +117,18 @@ SENSOR_DESCRIPTIONS: tuple[HaroSensorDescription, ...] = (
     HaroSensorDescription(
         key="queue",
         translation_key="queue",
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement="states",
         value_fn=_queue_value,
         attributes_fn=_queue_attributes,
     ),
     HaroSensorDescription(
-        key="monitored_entities",
-        translation_key="monitored_entities",
-        value_fn=_monitored_entities_value,
-        attributes_fn=_monitored_entities_attributes,
+        key="recorded_entities",
+        translation_key="recorded_entities",
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement="entities",
+        value_fn=_recorded_entities_value,
+        attributes_fn=_recorded_entities_attributes,
     ),
 )
 

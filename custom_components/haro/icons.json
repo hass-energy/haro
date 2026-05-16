@@ -1,0 +1,18 @@
+{
+  "entity": {
+    "sensor": {
+      "site": {
+        "default": "mdi:information-outline"
+      },
+      "api_status": {
+        "default": "mdi:cloud-alert-outline"
+      },
+      "queue": {
+        "default": "mdi:tray-full"
+      },
+      "recorded_entities": {
+        "default": "mdi:video-vintage"
+      }
+    }
+  }
+}

@@ -46,8 +46,8 @@
       "queue": {
         "name": "Queue"
       },
-      "monitored_entities": {
-        "name": "Monitored Entities"
+      "recorded_entities": {
+        "name": "Recorded Entities"
       }
     }
   }

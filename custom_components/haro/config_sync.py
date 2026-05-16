@@ -46,23 +46,27 @@ class ConfigSync:
         if canonical_config_hash(current_config) == canonical_config_hash(self.current_config):
             return
         if config_version == self.config_version and environment == self.environment:
-            await self.queue.async_enqueue(build_patch_event(
-                site_id=self.site_id,
-                haeo_entry_id=self.haeo_entry_id,
-                captured_at=utc_now_iso(),
-                config_version=config_version,
-                base_config=self.current_config,
-                current_config=current_config,
-            ))
+            await self.queue.async_enqueue(
+                build_patch_event(
+                    site_id=self.site_id,
+                    haeo_entry_id=self.haeo_entry_id,
+                    captured_at=utc_now_iso(),
+                    config_version=config_version,
+                    base_config=self.current_config,
+                    current_config=current_config,
+                )
+            )
         else:
-            await self.queue.async_enqueue(build_checkpoint_event(
-                site_id=self.site_id,
-                haeo_entry_id=self.haeo_entry_id,
-                captured_at=utc_now_iso(),
-                config_version=config_version,
-                environment=environment,
-                config=current_config,
-            ))
+            await self.queue.async_enqueue(
+                build_checkpoint_event(
+                    site_id=self.site_id,
+                    haeo_entry_id=self.haeo_entry_id,
+                    captured_at=utc_now_iso(),
+                    config_version=config_version,
+                    environment=environment,
+                    config=current_config,
+                )
+            )
         self.current_config = current_config
         self.config_version = config_version
         self.environment = environment
@@ -84,14 +88,16 @@ class ConfigSync:
         )
         events = decision.events
         if decision.action == "checkpoint":
-            checkpoint = await self.queue.async_enqueue(build_checkpoint_event(
-                site_id=self.site_id,
-                haeo_entry_id=self.haeo_entry_id,
-                captured_at=utc_now_iso(),
-                config_version=self.config_version,
-                environment=self.environment,
-                config=self.current_config,
-            ))
+            checkpoint = await self.queue.async_enqueue(
+                build_checkpoint_event(
+                    site_id=self.site_id,
+                    haeo_entry_id=self.haeo_entry_id,
+                    captured_at=utc_now_iso(),
+                    config_version=self.config_version,
+                    environment=self.environment,
+                    config=self.current_config,
+                )
+            )
             events = [checkpoint]
         for event in events:
             ack = await self.client.send_config_event(event)

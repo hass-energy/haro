@@ -52,20 +52,24 @@ async def test_config_sync_drains_matching_queued_patches_and_prunes_acks(tmp_pa
     environment = ConfigEnvironment("2026.5.0", "0.5.0", "Australia/Sydney")
     base = {"version": 1, "minor_version": 3, "hub": {"name": "Home"}}
     current = {"version": 1, "minor_version": 3, "hub": {"name": "Away"}}
-    event = await queue.async_enqueue(build_patch_event(
-        site_id="site-1",
-        haeo_entry_id="haeo-entry-1",
-        captured_at="2026-01-01T00:01:00Z",
-        config_version="1.3",
-        base_config=base,
-        current_config=current,
-    ))
-    client = FakeClient({
-        "type": "config_state",
-        "config_hash": event["base_hash"],
-        "config_version": "1.3",
-        "environment": environment.as_payload(),
-    })
+    event = await queue.async_enqueue(
+        build_patch_event(
+            site_id="site-1",
+            haeo_entry_id="haeo-entry-1",
+            captured_at="2026-01-01T00:01:00Z",
+            config_version="1.3",
+            base_config=base,
+            current_config=current,
+        )
+    )
+    client = FakeClient(
+        {
+            "type": "config_state",
+            "config_hash": event["base_hash"],
+            "config_version": "1.3",
+            "environment": environment.as_payload(),
+        }
+    )
     sync = ConfigSync(client, queue, "site-1", "haeo-entry-1", current, "1.3", environment)
 
     await sync.async_reconcile_once()

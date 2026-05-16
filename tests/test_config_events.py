@@ -66,8 +66,7 @@ def test_reconcile_config_state_chooses_noop_patch_drain_or_checkpoint() -> None
     ]
 
     assert (
-        reconcile_config_state("sha256:c", "1.3", environment, "sha256:c", "1.3", environment, queued).action
-        == "noop"
+        reconcile_config_state("sha256:c", "1.3", environment, "sha256:c", "1.3", environment, queued).action == "noop"
     )
     drain = reconcile_config_state("sha256:a", "1.3", environment, "sha256:c", "1.3", environment, queued)
     assert drain.action == "drain"

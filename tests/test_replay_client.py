@@ -11,9 +11,10 @@ from custom_components.haro.replay_client import LoggingReplayClient, ReplayWebS
 
 
 class FakeWebSocket:
-    def __init__(self, *, fail_receive: bool = False) -> None:
+    def __init__(self, *, fail_receive: bool = False, messages: list[dict[str, Any]] | None = None) -> None:
         self.sent: list[dict[str, Any]] = []
         self.fail_receive = fail_receive
+        self.messages = list(messages or [])
 
     async def send_json(self, payload: dict[str, Any]) -> None:
         self.sent.append(payload)
@@ -21,7 +22,11 @@ class FakeWebSocket:
     async def receive_json(self) -> dict[str, Any]:
         if self.fail_receive:
             raise ConnectionError("closed")
-        return {"type": "ack", "id": self.sent[-1]["id"], "inserted": len(self.sent[-1]["states"])}
+        if self.messages:
+            return self.messages.pop(0)
+        sent = self.sent[-1]
+        inserted = len(sent["states"]) if "states" in sent else 1
+        return {"type": "ack", "id": sent["id"], "inserted": inserted}
 
     async def close(self) -> None:
         return None
@@ -101,3 +106,52 @@ async def test_client_reconnects_and_resends_unacked_batch() -> None:
     assert client.stats.last_error is None
     assert client.stats.status_code == 200
     assert sockets == []
+
+
+@pytest.mark.asyncio
+async def test_client_receives_config_state_after_connect() -> None:
+    ws = FakeWebSocket(
+        messages=[
+            {
+                "type": "config_state",
+                "site_id": "site-1",
+                "haeo_entry_id": "haeo-entry",
+                "config_hash": "sha256:known",
+                "config_version": "1.3",
+                "environment": {"ha_version": "2026.5.0", "haeo_version": "0.5.0", "timezone": "Australia/Sydney"},
+            }
+        ]
+    )
+
+    async def connect(_url: str, _headers: dict[str, str]) -> FakeWebSocket:
+        return ws
+
+    client = ReplayWebSocketClient(DEFAULT_REPLAY_URL, "token", "site-1", "haeo-entry", connect)
+
+    state = await client.receive_config_state()
+
+    assert state == {
+        "type": "config_state",
+        "site_id": "site-1",
+        "haeo_entry_id": "haeo-entry",
+        "config_hash": "sha256:known",
+        "config_version": "1.3",
+        "environment": {"ha_version": "2026.5.0", "haeo_version": "0.5.0", "timezone": "Australia/Sydney"},
+    }
+
+
+@pytest.mark.asyncio
+async def test_client_sends_config_event_and_waits_for_matching_ack() -> None:
+    ws = FakeWebSocket()
+
+    async def connect(_url: str, _headers: dict[str, str]) -> FakeWebSocket:
+        return ws
+
+    client = ReplayWebSocketClient(DEFAULT_REPLAY_URL, "token", "site-1", "haeo-entry", connect)
+    event = {"type": "config_checkpoint", "id": "event-1", "site_id": "site-1", "haeo_entry_id": "haeo-entry"}
+
+    ack = await client.send_config_event(event)
+
+    assert ws.sent == [event]
+    assert ack["type"] == "ack"
+    assert ack["id"] == "event-1"

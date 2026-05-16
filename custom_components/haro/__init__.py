@@ -8,8 +8,14 @@ from typing import TYPE_CHECKING, Any
 import homeassistant.helpers.config_validation as cv
 import voluptuous as vol
 from homeassistant.const import EVENT_HOMEASSISTANT_STOP, Platform
+from homeassistant.const import __version__ as ha_version
+from homeassistant.loader import async_get_integration
+from homeassistant.util import dt as dt_util
 
+from .config_events import ConfigEnvironment, config_from_haeo_entry, config_version_from_haeo_entry
 from .config_flow import bind_replay_site, fetch_replay_sites
+from .config_queue import ConfigEventQueue
+from .config_sync import ConfigSync
 from .const import (
     CONF_HAEO_CONFIG_ENTRY_ID,
     CONF_REPLAY_SITE_ID,
@@ -58,6 +64,7 @@ class HaroRuntimeData:
     client: ReplayClient
     forwarder: HaroForwarder
     site: ReplaySiteInfo
+    config_sync: ConfigSync | None = None
 
 
 async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
@@ -73,13 +80,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     data, sites = await _data_with_replay_site(hass, entry, replay_url)
     site = await _site_info_from_replay(data, replay_url, sites)
     client = replay_client_from_config(data, replay_url)
+    config_sync = await _config_sync_from_haeo_entry(hass, entry, data, client)
 
     async def _refresh_site_info() -> None:
         entry.runtime_data.site = await _site_info_from_replay(data, replay_url)
 
     forwarder = HaroForwarder(hass, entry, client, on_replay_recovered=_refresh_site_info)
-    entry.runtime_data = HaroRuntimeData(client=client, forwarder=forwarder, site=site)
+    entry.runtime_data = HaroRuntimeData(client=client, forwarder=forwarder, site=site, config_sync=config_sync)
     await forwarder.async_start()
+    if config_sync is not None and hasattr(hass, "async_create_task"):
+        hass.async_create_task(config_sync.async_reconcile_once())
+        _subscribe_config_sync_updates(hass, entry, config_sync)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
     async def _stop_forwarder_on_hass_stop(_event: Any) -> None:
@@ -87,6 +98,74 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     entry.async_on_unload(hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, _stop_forwarder_on_hass_stop))
     return True
+
+
+async def _config_sync_from_haeo_entry(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    data: dict[str, Any],
+    client: ReplayClient,
+) -> ConfigSync | None:
+    """Create config sync if the selected HAEO entry is loaded."""
+    site_id = data.get(CONF_REPLAY_SITE_ID)
+    haeo_entry_id = data.get(CONF_HAEO_CONFIG_ENTRY_ID)
+    if not isinstance(site_id, str) or not isinstance(haeo_entry_id, str):
+        return None
+    haeo_entry = _selected_haeo_entry(hass, haeo_entry_id)
+    if haeo_entry is None:
+        return None
+    queue = ConfigEventQueue(hass, entry.entry_id)
+    return ConfigSync(
+        client,
+        queue,
+        site_id,
+        haeo_entry_id,
+        config_from_haeo_entry(haeo_entry),
+        config_version_from_haeo_entry(haeo_entry),
+        await _config_environment(hass),
+    )
+
+
+def _subscribe_config_sync_updates(hass: HomeAssistant, entry: ConfigEntry, config_sync: ConfigSync) -> None:
+    """Watch HAEO config-entry updates and queue config history events."""
+    haeo_entry_id = entry.data.get(CONF_HAEO_CONFIG_ENTRY_ID)
+    if not isinstance(haeo_entry_id, str):
+        return
+    haeo_entry = _selected_haeo_entry(hass, haeo_entry_id)
+    if haeo_entry is None or not hasattr(haeo_entry, "add_update_listener"):
+        return
+
+    async def _handle_haeo_updated(*_args: Any) -> None:
+        refreshed = _selected_haeo_entry(hass, haeo_entry_id)
+        if refreshed is None:
+            return
+        await config_sync.async_update_current_config(
+            config_from_haeo_entry(refreshed),
+            config_version_from_haeo_entry(refreshed),
+            await _config_environment(hass),
+        )
+        await config_sync.async_reconcile_once()
+
+    entry.async_on_unload(haeo_entry.add_update_listener(_handle_haeo_updated))
+
+
+def _selected_haeo_entry(hass: HomeAssistant, haeo_entry_id: str) -> Any | None:
+    manager = getattr(hass, "config_entries", None)
+    if manager is None or not hasattr(manager, "async_entries"):
+        return None
+    for candidate in manager.async_entries("haeo"):
+        if getattr(candidate, "entry_id", None) == haeo_entry_id:
+            return candidate
+    return None
+
+
+async def _config_environment(hass: HomeAssistant) -> ConfigEnvironment:
+    integration = await async_get_integration(hass, "haeo")
+    return ConfigEnvironment(
+        ha_version=ha_version,
+        haeo_version=integration.version or "unknown",
+        timezone=str(dt_util.get_default_time_zone()),
+    )
 
 
 async def _data_with_replay_site(
@@ -150,6 +229,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Remove HARO queue storage for an entry."""
     await QueueLog(hass, entry.entry_id).async_remove()
+    await ConfigEventQueue(hass, entry.entry_id).async_remove()
 
 
 async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: ConfigEntry) -> dict[str, Any]:

@@ -216,9 +216,15 @@ async def test_async_remove_entry_removes_queue_log() -> None:
     entry = SimpleNamespace(entry_id="haro-entry")
     queue_log = Mock()
     queue_log.async_remove = AsyncMock()
+    config_queue = Mock()
+    config_queue.async_remove = AsyncMock()
 
-    with patch("custom_components.haro.QueueLog", Mock(return_value=queue_log)):
+    with (
+        patch("custom_components.haro.QueueLog", Mock(return_value=queue_log)),
+        patch("custom_components.haro.ConfigEventQueue", Mock(return_value=config_queue)),
+    ):
         result = await async_remove_entry(hass, entry)  # type: ignore[arg-type]
 
     assert result is None
     queue_log.async_remove.assert_awaited_once()
+    config_queue.async_remove.assert_awaited_once()

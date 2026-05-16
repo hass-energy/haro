@@ -14,6 +14,7 @@ from .const import CONF_HAEO_CONFIG_ENTRY_ID, CONF_REPLAY_SITE_ID, CONF_TOKEN, D
 _LOGGER = logging.getLogger(__name__)
 
 StatePayload = dict[str, Any]
+ConfigPayload = dict[str, Any]
 ConnectFn = Callable[[str, dict[str, str]], Awaitable[Any]]
 
 
@@ -28,6 +29,14 @@ class ReplayClient(Protocol):
 
     async def send_states(self, states: list[StatePayload]) -> dict[str, Any]:
         """Send state payloads."""
+        ...
+
+    async def receive_config_state(self) -> dict[str, Any]:
+        """Receive Replay's config_state announcement."""
+        ...
+
+    async def send_config_event(self, event: ConfigPayload) -> dict[str, Any]:
+        """Send a config checkpoint or patch event."""
         ...
 
 
@@ -110,6 +119,37 @@ class ReplayWebSocketClient:
                     self.stats.reconnects += 1
             raise ReplayClientError("unreachable")
 
+    async def receive_config_state(self) -> dict[str, Any]:
+        """Receive Replay's config_state announcement after connect."""
+        async with self._lock:
+            await self.connect()
+            assert self._ws is not None
+            while True:
+                msg = await self._ws.receive_json()
+                if msg.get("type") == "config_state":
+                    return msg
+                if msg.get("type") == "error":
+                    self.stats.last_error = str(msg.get("error", "unknown"))
+                    raise ReplayClientError(self.stats.last_error)
+
+    async def send_config_event(self, event: ConfigPayload) -> dict[str, Any]:
+        """Send one queued config event and wait for its matching ack."""
+        event_id = event.get("id")
+        if not isinstance(event_id, str) or not event_id:
+            raise ReplayClientError("config event id is required")
+        async with self._lock:
+            for attempt in range(2):
+                try:
+                    return await self._send_config_once(event)
+                except Exception as e:
+                    self.stats.last_error = str(e)
+                    self.stats.status_code = None
+                    await self.close()
+                    if attempt > 0:
+                        raise
+                    self.stats.reconnects += 1
+            raise ReplayClientError("unreachable")
+
     async def _send_once(self, batch_id: str, states: list[StatePayload]) -> dict[str, Any]:
         await self.connect()
         assert self._ws is not None
@@ -137,6 +177,27 @@ class ReplayWebSocketClient:
                 self.stats.status_code = status_code if isinstance(status_code, int) else None
                 raise ReplayClientError(self.stats.last_error)
 
+    async def _send_config_once(self, event: ConfigPayload) -> dict[str, Any]:
+        await self.connect()
+        assert self._ws is not None
+        await self._ws.send_json(event)
+        event_id = event["id"]
+        while True:
+            msg = await self._ws.receive_json()
+            if msg.get("type") == "ack" and msg.get("id") == event_id:
+                self.stats.last_ack_id = str(event_id)
+                self.stats.last_error = None
+                self.stats.status_code = 200
+                return msg
+            if msg.get("type") == "needs_checkpoint" and msg.get("id") == event_id:
+                self.stats.last_error = str(msg.get("error", "needs_checkpoint"))
+                raise ReplayClientError(self.stats.last_error)
+            if msg.get("type") == "error":
+                self.stats.last_error = str(msg.get("error", "unknown"))
+                status_code = msg.get("status_code")
+                self.stats.status_code = status_code if isinstance(status_code, int) else None
+                raise ReplayClientError(self.stats.last_error)
+
 
 @dataclass
 class LoggingReplayClient:
@@ -157,6 +218,17 @@ class LoggingReplayClient:
         self.stats.sent_states += len(states)
         self.stats.status_code = 200
         return {"inserted": len(states)}
+
+    async def receive_config_state(self) -> dict[str, Any]:
+        """Return an empty config state in log-only mode."""
+        return {"type": "config_state", "config_hash": None, "config_version": None, "environment": None}
+
+    async def send_config_event(self, event: ConfigPayload) -> dict[str, Any]:
+        """Log config event payloads and return an ack-like response."""
+        _LOGGER.info("HARO log_only Replay received config event: %s", event)
+        event_id = event.get("id")
+        self.stats.status_code = 200
+        return {"type": "ack", "id": event_id, "inserted": 1}
 
 
 def replay_client_from_config(data: Mapping[str, Any], replay_url: str = DEFAULT_REPLAY_URL) -> ReplayClient:

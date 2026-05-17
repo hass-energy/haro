@@ -43,8 +43,8 @@
       "api_status": {
         "name": "API Status"
       },
-      "recorded_entities": {
-        "name": "Recorded Entities"
+      "tracked_entities": {
+        "name": "Tracked Entities"
       },
       "backlog": {
         "name": "Backlog"

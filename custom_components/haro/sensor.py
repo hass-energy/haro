@@ -134,12 +134,12 @@ def _recorded_configs_attributes(runtime: Any) -> dict[str, Any]:
     }
 
 
-def _recorded_entities_value(runtime: Any) -> StateType:
+def _tracked_entities_value(runtime: Any) -> StateType:
     """Return the recorded entity count."""
     return len(runtime.forwarder.entity_ids)
 
 
-def _recorded_entities_attributes(runtime: Any) -> dict[str, Any]:
+def _tracked_entities_attributes(runtime: Any) -> dict[str, Any]:
     """Return recorded entity IDs."""
     return {"entity_ids": sorted(runtime.forwarder.entity_ids)}
 
@@ -182,12 +182,12 @@ SENSOR_DESCRIPTIONS: tuple[HaroSensorDescription, ...] = (
         attributes_fn=_recorded_configs_attributes,
     ),
     HaroSensorDescription(
-        key="recorded_entities",
-        translation_key="recorded_entities",
+        key="tracked_entities",
+        translation_key="tracked_entities",
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement="entities",
-        value_fn=_recorded_entities_value,
-        attributes_fn=_recorded_entities_attributes,
+        value_fn=_tracked_entities_value,
+        attributes_fn=_tracked_entities_attributes,
     ),
 )
 

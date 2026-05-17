@@ -7,7 +7,7 @@
       "api_status": {
         "default": "mdi:cloud-alert-outline"
       },
-      "recorded_entities": {
+      "tracked_entities": {
         "default": "mdi:video-vintage"
       },
       "backlog": {

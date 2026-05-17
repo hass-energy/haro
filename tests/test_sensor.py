@@ -98,7 +98,7 @@ def test_sensor_descriptions_drive_values_and_attributes() -> None:
         "backlog",
         "recorded_states",
         "recorded_configs",
-        "recorded_entities",
+        "tracked_entities",
     }
     assert not any(isinstance(description.name, str) for description in SENSOR_DESCRIPTIONS)
     assert {description.key: description.translation_key for description in SENSOR_DESCRIPTIONS} == {
@@ -107,7 +107,7 @@ def test_sensor_descriptions_drive_values_and_attributes() -> None:
         "backlog": "backlog",
         "recorded_states": "recorded_states",
         "recorded_configs": "recorded_configs",
-        "recorded_entities": "recorded_entities",
+        "tracked_entities": "tracked_entities",
     }
     assert not any(description.icon for description in SENSOR_DESCRIPTIONS)
     assert all(callable(description.value_fn) for description in SENSOR_DESCRIPTIONS)
@@ -128,8 +128,8 @@ def test_sensor_descriptions_include_units_and_classes() -> None:
     assert descriptions["recorded_configs"].native_unit_of_measurement == "events"
     assert descriptions["recorded_configs"].state_class is SensorStateClass.TOTAL_INCREASING
 
-    assert descriptions["recorded_entities"].native_unit_of_measurement == "entities"
-    assert descriptions["recorded_entities"].state_class is SensorStateClass.MEASUREMENT
+    assert descriptions["tracked_entities"].native_unit_of_measurement == "entities"
+    assert descriptions["tracked_entities"].state_class is SensorStateClass.MEASUREMENT
 
 
 @pytest.mark.asyncio
@@ -148,7 +148,7 @@ async def test_async_setup_entry_creates_diagnostic_sensors(hass) -> None:  # ty
         "backlog",
         "recorded_states",
         "recorded_configs",
-        "recorded_entities",
+        "tracked_entities",
     }
     assert all(sensor.entity_category is EntityCategory.DIAGNOSTIC for sensor in sensors)
     assert all(sensor.device_info == sensors[0].device_info for sensor in sensors)
@@ -261,11 +261,11 @@ def test_diagnostic_sensor_attributes_do_not_overlap_across_new_sensors() -> Non
     assert key_sets[1].isdisjoint(key_sets[2])
 
 
-def test_recorded_entities_sensor_counts_and_lists_entity_ids() -> None:
+def test_tracked_entities_sensor_counts_and_lists_entity_ids() -> None:
     entry = MockConfigEntry(domain=DOMAIN, entry_id="haro-entry", title="HARO")
     runtime = FakeRuntime()
-    sensor = HaroDiagnosticSensor(entry, runtime, sensor_description("recorded_entities"))
+    sensor = HaroDiagnosticSensor(entry, runtime, sensor_description("tracked_entities"))
 
-    assert sensor.unique_id == "haro-entry_recorded_entities"
+    assert sensor.unique_id == "haro-entry_tracked_entities"
     assert sensor.native_value == 2
     assert sensor.extra_state_attributes == {"entity_ids": ["sensor.a", "sensor.b"]}

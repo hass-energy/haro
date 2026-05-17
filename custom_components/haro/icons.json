@@ -14,10 +14,10 @@
         "default": "mdi:tray-full"
       },
       "recorded_states": {
-        "default": "mdi:database-check-outline"
+        "default": "mdi:database-sync"
       },
       "recorded_configs": {
-        "default": "mdi:file-cog-outline"
+        "default": "mdi:cog-sync"
       }
     }
   }

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime
 from http import HTTPStatus
 from typing import TYPE_CHECKING, Any, Protocol
 
@@ -11,6 +12,7 @@ from homeassistant.components.sensor import SensorEntity, SensorEntityDescriptio
 from homeassistant.const import EntityCategory
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.typing import StateType
+from homeassistant.util import dt as dt_util
 
 from .const import DOMAIN, NAME
 
@@ -74,20 +76,61 @@ def _api_status_attributes(runtime: Any) -> dict[str, Any]:
     return {"status_code": runtime.client.stats.status_code}
 
 
-def _queue_value(runtime: Any) -> StateType:
+def _local_iso(value: Any) -> str | None:
+    """Serialize a datetime using Home Assistant's configured local timezone."""
+    if not isinstance(value, datetime):
+        return None
+    return dt_util.as_local(value).isoformat()
+
+
+def _backlog_value(runtime: Any) -> StateType:
     """Return the current forwarding queue depth."""
     return runtime.forwarder.diagnostics().get("queued")
 
 
-def _queue_attributes(runtime: Any) -> dict[str, Any]:
-    """Return forwarding queue counters."""
+def _backlog_attributes(runtime: Any) -> dict[str, Any]:
+    """Return state backlog counters and timelines."""
     diagnostics = runtime.forwarder.diagnostics()
     return {
-        "received_total": diagnostics.get("received"),
-        "sent_total": diagnostics.get("sent"),
-        "dropped_total": diagnostics.get("dropped"),
         "queue_limit": diagnostics.get("queue_limit"),
-        "logged_queued": diagnostics.get("logged_queued"),
+        "persisted": diagnostics.get("persisted"),
+        "dropped": diagnostics.get("dropped"),
+        "received": diagnostics.get("received"),
+        "last_state_change": diagnostics.get("last_state_change"),
+        "last_disk_write": diagnostics.get("last_disk_write"),
+    }
+
+
+def _recorded_states_value(runtime: Any) -> StateType:
+    """Return the count of state payloads acked by Replay."""
+    return runtime.client.stats.sent_states
+
+
+def _recorded_states_attributes(runtime: Any) -> dict[str, Any]:
+    """Return Replay-acked state counters and timelines."""
+    stats = runtime.client.stats
+    return {
+        "last_states_ack_id": stats.last_states_ack_id,
+        "sent_batches": stats.sent_batches,
+        "last_sync_attempt": _local_iso(stats.last_sync_attempt),
+        "last_sync": _local_iso(stats.last_sync),
+    }
+
+
+def _recorded_configs_value(runtime: Any) -> StateType:
+    """Return the count of config events acked by Replay."""
+    return runtime.client.stats.sent_config_events
+
+
+def _recorded_configs_attributes(runtime: Any) -> dict[str, Any]:
+    """Return Replay-acked config counters and timelines."""
+    stats = runtime.client.stats
+    diagnostics = runtime.config_sync.diagnostics()
+    return {
+        "queued": diagnostics.get("queued"),
+        "last_config_ack_id": stats.last_config_ack_id,
+        "last_config_sync_attempt": _local_iso(stats.last_config_sync_attempt),
+        "last_config_sync": _local_iso(stats.last_config_sync),
     }
 
 
@@ -115,12 +158,28 @@ SENSOR_DESCRIPTIONS: tuple[HaroSensorDescription, ...] = (
         attributes_fn=_api_status_attributes,
     ),
     HaroSensorDescription(
-        key="queue",
-        translation_key="queue",
+        key="backlog",
+        translation_key="backlog",
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement="states",
-        value_fn=_queue_value,
-        attributes_fn=_queue_attributes,
+        value_fn=_backlog_value,
+        attributes_fn=_backlog_attributes,
+    ),
+    HaroSensorDescription(
+        key="recorded_states",
+        translation_key="recorded_states",
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        native_unit_of_measurement="states",
+        value_fn=_recorded_states_value,
+        attributes_fn=_recorded_states_attributes,
+    ),
+    HaroSensorDescription(
+        key="recorded_configs",
+        translation_key="recorded_configs",
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        native_unit_of_measurement="events",
+        value_fn=_recorded_configs_value,
+        attributes_fn=_recorded_configs_attributes,
     ),
     HaroSensorDescription(
         key="recorded_entities",

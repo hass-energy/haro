@@ -7,11 +7,17 @@
       "api_status": {
         "default": "mdi:cloud-alert-outline"
       },
-      "queue": {
-        "default": "mdi:tray-full"
-      },
       "recorded_entities": {
         "default": "mdi:video-vintage"
+      },
+      "backlog": {
+        "default": "mdi:tray-full"
+      },
+      "recorded_states": {
+        "default": "mdi:database-check-outline"
+      },
+      "recorded_configs": {
+        "default": "mdi:file-cog-outline"
       }
     }
   }

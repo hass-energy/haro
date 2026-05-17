@@ -9,6 +9,8 @@ import homeassistant.helpers.config_validation as cv
 import voluptuous as vol
 from homeassistant.const import EVENT_HOMEASSISTANT_STOP, Platform
 from homeassistant.const import __version__ as ha_version
+from homeassistant.exceptions import ConfigEntryNotReady
+from homeassistant.helpers import issue_registry
 from homeassistant.loader import async_get_integration
 from homeassistant.util import dt as dt_util
 
@@ -64,7 +66,7 @@ class HaroRuntimeData:
     client: ReplayClient
     forwarder: HaroForwarder
     site: ReplaySiteInfo
-    config_sync: ConfigSync | None = None
+    config_sync: ConfigSync
 
 
 async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
@@ -88,9 +90,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     forwarder = HaroForwarder(hass, entry, client, on_replay_recovered=_refresh_site_info)
     entry.runtime_data = HaroRuntimeData(client=client, forwarder=forwarder, site=site, config_sync=config_sync)
     await forwarder.async_start()
-    if config_sync is not None and hasattr(hass, "async_create_task"):
+    if hasattr(hass, "async_create_task"):
         hass.async_create_task(config_sync.async_reconcile_once())
-        _subscribe_config_sync_updates(hass, entry, config_sync)
+    _subscribe_config_sync_updates(hass, entry, config_sync)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
     async def _stop_forwarder_on_hass_stop(_event: Any) -> None:
@@ -105,15 +107,15 @@ async def _config_sync_from_haeo_entry(
     entry: ConfigEntry,
     data: dict[str, Any],
     client: ReplayClient,
-) -> ConfigSync | None:
-    """Create config sync if the selected HAEO entry is loaded."""
+) -> ConfigSync:
+    """Create config sync for the selected HAEO entry."""
     site_id = data.get(CONF_REPLAY_SITE_ID)
     haeo_entry_id = data.get(CONF_HAEO_CONFIG_ENTRY_ID)
     if not isinstance(site_id, str) or not isinstance(haeo_entry_id, str):
-        return None
+        raise ConfigEntryNotReady("HARO needs a Replay site and linked HAEO config entry")
     haeo_entry = _selected_haeo_entry(hass, haeo_entry_id)
     if haeo_entry is None:
-        return None
+        raise ConfigEntryNotReady(f"HAEO config entry {haeo_entry_id} is not loaded")
     queue = ConfigEventQueue(hass, entry.entry_id)
     return ConfigSync(
         client,
@@ -138,6 +140,17 @@ def _subscribe_config_sync_updates(hass: HomeAssistant, entry: ConfigEntry, conf
     async def _handle_haeo_updated(*_args: Any) -> None:
         refreshed = _selected_haeo_entry(hass, haeo_entry_id)
         if refreshed is None:
+            issue_registry.async_create_issue(
+                hass,
+                DOMAIN,
+                f"haeo_removed_{entry.entry_id}",
+                is_fixable=False,
+                severity=issue_registry.IssueSeverity.ERROR,
+                translation_key="haeo_removed",
+            )
+            unload = getattr(hass.config_entries, "async_unload", None)
+            if unload is not None:
+                await unload(entry.entry_id)
             return
         await config_sync.async_update_current_config(
             config_from_haeo_entry(refreshed),

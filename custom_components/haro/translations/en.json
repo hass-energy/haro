@@ -43,11 +43,17 @@
       "api_status": {
         "name": "API Status"
       },
-      "queue": {
-        "name": "Queue"
-      },
       "recorded_entities": {
         "name": "Recorded Entities"
+      },
+      "backlog": {
+        "name": "Backlog"
+      },
+      "recorded_states": {
+        "name": "Recorded States"
+      },
+      "recorded_configs": {
+        "name": "Recorded Configs"
       }
     }
   }

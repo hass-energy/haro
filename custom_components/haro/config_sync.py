@@ -35,6 +35,11 @@ class ConfigSync:
         self.current_config = current_config
         self.config_version = config_version
         self.environment = environment
+        self._queued = 0
+
+    def diagnostics(self) -> dict[str, int]:
+        """Return sync diagnostics for sensor attributes."""
+        return {"queued": self._queued}
 
     async def async_update_current_config(
         self,
@@ -56,6 +61,7 @@ class ConfigSync:
                     current_config=current_config,
                 )
             )
+            self._queued += 1
         else:
             await self.queue.async_enqueue(
                 build_checkpoint_event(
@@ -67,6 +73,7 @@ class ConfigSync:
                     config=current_config,
                 )
             )
+            self._queued += 1
         self.current_config = current_config
         self.config_version = config_version
         self.environment = environment
@@ -76,6 +83,7 @@ class ConfigSync:
         state = await self.client.receive_config_state()
         replay_environment = environment_from_payload(state.get("environment"))
         queued = await self.queue.async_load()
+        self._queued = len(queued)
         local_hash = canonical_config_hash(self.current_config)
         decision = reconcile_config_state(
             state.get("config_hash") if isinstance(state.get("config_hash"), str) else None,
@@ -98,11 +106,13 @@ class ConfigSync:
                     config=self.current_config,
                 )
             )
+            self._queued += 1
             events = [checkpoint]
         for event in events:
             ack = await self.client.send_config_event(event)
             if ack.get("type") == "ack" and ack.get("id") == event.get("id"):
                 await self.queue.async_ack(str(event["id"]))
+                self._queued = len(await self.queue.async_load())
 
 
 def environment_from_payload(value: Any) -> ConfigEnvironment | None:

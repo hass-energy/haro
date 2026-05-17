@@ -6,8 +6,11 @@ import asyncio
 import logging
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any, Protocol
 from uuid import uuid4
+
+from homeassistant.util import dt as dt_util
 
 from .const import CONF_HAEO_CONFIG_ENTRY_ID, CONF_REPLAY_SITE_ID, CONF_TOKEN, DEFAULT_REPLAY_URL, REPLAY_URL_LOG_ONLY
 
@@ -54,9 +57,15 @@ class ReplayClientStats:
 
     sent_batches: int = 0
     sent_states: int = 0
+    sent_config_events: int = 0
     dropped_states: int = 0
     reconnects: int = 0
-    last_ack_id: str | None = None
+    last_states_ack_id: str | None = None
+    last_config_ack_id: str | None = None
+    last_sync_attempt: datetime | None = None
+    last_sync: datetime | None = None
+    last_config_sync_attempt: datetime | None = None
+    last_config_sync: datetime | None = None
     last_error: str | None = None
     status_code: int | None = None
 
@@ -151,6 +160,7 @@ class ReplayWebSocketClient:
             raise ReplayClientError("unreachable")
 
     async def _send_once(self, batch_id: str, states: list[StatePayload]) -> dict[str, Any]:
+        self.stats.last_sync_attempt = dt_util.utcnow()
         await self.connect()
         assert self._ws is not None
         await self._ws.send_json(
@@ -167,7 +177,8 @@ class ReplayWebSocketClient:
             if msg.get("type") == "ack" and msg.get("id") == batch_id:
                 self.stats.sent_batches += 1
                 self.stats.sent_states += len(states)
-                self.stats.last_ack_id = batch_id
+                self.stats.last_states_ack_id = batch_id
+                self.stats.last_sync = dt_util.utcnow()
                 self.stats.last_error = None
                 self.stats.status_code = 200
                 return msg
@@ -178,6 +189,7 @@ class ReplayWebSocketClient:
                 raise ReplayClientError(self.stats.last_error)
 
     async def _send_config_once(self, event: ConfigPayload) -> dict[str, Any]:
+        self.stats.last_config_sync_attempt = dt_util.utcnow()
         await self.connect()
         assert self._ws is not None
         await self._ws.send_json(event)
@@ -185,7 +197,9 @@ class ReplayWebSocketClient:
         while True:
             msg = await self._ws.receive_json()
             if msg.get("type") == "ack" and msg.get("id") == event_id:
-                self.stats.last_ack_id = str(event_id)
+                self.stats.sent_config_events += 1
+                self.stats.last_config_ack_id = str(event_id)
+                self.stats.last_config_sync = dt_util.utcnow()
                 self.stats.last_error = None
                 self.stats.status_code = 200
                 return msg
@@ -214,8 +228,11 @@ class LoggingReplayClient:
         if not states:
             return {"inserted": 0}
         _LOGGER.info("HARO log_only Replay received %s states: %s", len(states), states)
+        now = dt_util.utcnow()
         self.stats.sent_batches += 1
         self.stats.sent_states += len(states)
+        self.stats.last_sync_attempt = now
+        self.stats.last_sync = now
         self.stats.status_code = 200
         return {"inserted": len(states)}
 
@@ -227,6 +244,11 @@ class LoggingReplayClient:
         """Log config event payloads and return an ack-like response."""
         _LOGGER.info("HARO log_only Replay received config event: %s", event)
         event_id = event.get("id")
+        now = dt_util.utcnow()
+        self.stats.sent_config_events += 1
+        self.stats.last_config_ack_id = str(event_id) if event_id is not None else None
+        self.stats.last_config_sync_attempt = now
+        self.stats.last_config_sync = now
         self.stats.status_code = 200
         return {"type": "ack", "id": event_id, "inserted": 1}
 

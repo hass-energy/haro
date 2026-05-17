@@ -92,6 +92,7 @@ async def test_config_sync_enqueues_patch_for_value_only_change(tmp_path: Path) 
     queued = await queue.async_load()
     assert queued[0]["type"] == "config_patch"
     assert queued[0]["patch"] == [{"op": "replace", "path": ["hub", "name"], "value": "Away"}]
+    assert sync.diagnostics() == {"queued": 1}
 
 
 async def test_config_sync_enqueues_checkpoint_for_version_or_environment_change(tmp_path: Path) -> None:

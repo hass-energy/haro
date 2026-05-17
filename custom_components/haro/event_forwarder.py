@@ -12,6 +12,7 @@ from datetime import date, datetime
 from typing import Any
 
 from homeassistant.helpers.event import async_track_state_change_event
+from homeassistant.util import dt as dt_util
 
 from .const import (
     CONF_BATCH_SIZE,
@@ -73,7 +74,7 @@ class QueuedPayload:
     """Payload waiting to be sent, plus whether it is already on disk."""
 
     payload: StatePayload
-    logged: bool = False
+    persisted: bool = False
 
 
 def json_safe(value: Any) -> Any:
@@ -96,6 +97,11 @@ def timestamp_from_state(state: Any, attr: str) -> float | None:
     if isinstance(when, datetime):
         return when.timestamp()
     return None
+
+
+def _local_iso(instant: datetime | None) -> str | None:
+    """Serialize an instant using Home Assistant's configured local timezone."""
+    return None if instant is None else dt_util.as_local(instant).isoformat()
 
 
 def payload_from_state(entity_id: str, state: Any, origin_idx: int | None = None) -> StatePayload | None:
@@ -163,6 +169,8 @@ class HaroForwarder:
         self._stopped = asyncio.Event()
         self.on_replay_recovered = on_replay_recovered
         self._last_seen_reconnects = self._client_reconnects()
+        self._last_state_change: datetime | None = None
+        self._last_disk_write: datetime | None = None
 
     def _default_queue_log(self) -> QueueLog | None:
         entry_id = getattr(self.entry, "entry_id", None)
@@ -210,7 +218,9 @@ class HaroForwarder:
             "sent": self.stats.sent,
             "dropped": self.stats.dropped,
             "queue_limit": self.queue_limit,
-            "logged_queued": sum(1 for item in self._queue if item.logged),
+            "persisted": sum(1 for item in self._queue if item.persisted),
+            "last_state_change": _local_iso(self._last_state_change),
+            "last_disk_write": _local_iso(self._last_disk_write),
             "backoff_seconds": self.stats.backoff_seconds,
             "consecutive_failures": self.stats.consecutive_failures,
             "last_error": self.stats.last_error,
@@ -218,7 +228,6 @@ class HaroForwarder:
 
     def handle_state_changed(self, event: Any) -> None:
         """Handle a Home Assistant state_changed event."""
-        self.stats.received += 1
         data = getattr(event, "data", event)
         entity_id = data.get("entity_id")
         if entity_id not in self.entity_ids:
@@ -230,6 +239,8 @@ class HaroForwarder:
         origin_idx = getattr(origin, "idx", None)
         payload = payload_from_state(entity_id, state, origin_idx if isinstance(origin_idx, int) else None)
         if payload is not None:
+            self.stats.received += 1
+            self._last_state_change = dt_util.utcnow()
             self._append(payload)
 
     async def _enqueue_current_states(self, entity_ids: Iterable[str] | None = None) -> None:
@@ -336,11 +347,12 @@ class HaroForwarder:
                 self.stats.last_error = str(e)
                 return
             for item in self._queue:
-                item.logged = True
+                item.persisted = True
+            self._last_disk_write = dt_util.utcnow()
             self._log_has_content = True
             self._log_drifted = False
             return
-        unlogged = [item for item in self._queue if not item.logged]
+        unlogged = [item for item in self._queue if not item.persisted]
         if not unlogged:
             return
         try:
@@ -349,7 +361,8 @@ class HaroForwarder:
             self.stats.last_error = str(e)
             return
         for item in unlogged:
-            item.logged = True
+            item.persisted = True
+        self._last_disk_write = dt_util.utcnow()
         self._log_has_content = True
 
     async def _truncate_log_if_synced(self) -> None:

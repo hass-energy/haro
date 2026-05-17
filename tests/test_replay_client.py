@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
 import pytest
@@ -66,7 +67,25 @@ async def test_log_only_client_acknowledges_without_websocket() -> None:
     assert ack == {"inserted": 1}
     assert client.stats.sent_batches == 1
     assert client.stats.sent_states == 1
+    assert client.stats.last_states_ack_id is None
+    assert isinstance(client.stats.last_sync_attempt, datetime)
+    assert isinstance(client.stats.last_sync, datetime)
     assert client.stats.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_log_only_client_records_config_event_stats() -> None:
+    client = replay_client_from_config({"token": "token"}, REPLAY_URL_LOG_ONLY)
+    event = {"type": "config_checkpoint", "id": "event-1"}
+
+    ack = await client.send_config_event(event)
+
+    assert ack == {"type": "ack", "id": "event-1", "inserted": 1}
+    assert client.stats.sent_config_events == 1
+    assert client.stats.last_config_ack_id == "event-1"
+    assert isinstance(client.stats.last_config_sync_attempt, datetime)
+    assert isinstance(client.stats.last_config_sync, datetime)
+    assert not hasattr(client.stats, "last_ack_id")
 
 
 @pytest.mark.asyncio
@@ -88,6 +107,9 @@ async def test_client_uses_bearer_auth_and_waits_for_ack() -> None:
     assert ack["type"] == "ack"
     assert client.stats.sent_batches == 1
     assert client.stats.sent_states == 1
+    assert client.stats.last_states_ack_id == ws.sent[0]["id"]
+    assert isinstance(client.stats.last_sync_attempt, datetime)
+    assert isinstance(client.stats.last_sync, datetime)
     assert client.stats.status_code == 200
 
 
@@ -155,3 +177,7 @@ async def test_client_sends_config_event_and_waits_for_matching_ack() -> None:
     assert ws.sent == [event]
     assert ack["type"] == "ack"
     assert ack["id"] == "event-1"
+    assert client.stats.sent_config_events == 1
+    assert client.stats.last_config_ack_id == "event-1"
+    assert isinstance(client.stats.last_config_sync_attempt, datetime)
+    assert isinstance(client.stats.last_config_sync, datetime)

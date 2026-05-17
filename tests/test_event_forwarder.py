@@ -252,18 +252,33 @@ def test_forwarder_diagnostics_exposes_queue_contract_without_filtered_counter()
     assert diagnostics["sent"] == 0
     assert diagnostics["dropped"] == 0
     assert diagnostics["queue_limit"] == 1
-    assert diagnostics["logged_queued"] == 0
+    assert diagnostics["persisted"] == 0
+    assert diagnostics["last_state_change"] is None
+    assert diagnostics["last_disk_write"] is None
     assert "filtered" not in diagnostics
 
 
-def test_forwarder_diagnostics_counts_logged_queued_payloads() -> None:
+def test_forwarder_diagnostics_counts_persisted_payloads() -> None:
     forwarder = HaroForwarder(FakeHass(), FakeEntry(), FakeClient())  # type: ignore[arg-type]
 
     forwarder._append({"entity_id": "sensor.logged"}, logged=True)
 
     diagnostics = forwarder.diagnostics()
     assert diagnostics["queued"] == 1
-    assert diagnostics["logged_queued"] == 1
+    assert diagnostics["persisted"] == 1
+
+
+def test_forwarder_records_last_state_change_for_live_events_only() -> None:
+    forwarder = HaroForwarder(FakeHass(), FakeEntry(), FakeClient())  # type: ignore[arg-type]
+    state = FakeStates().get("sensor.energy")
+    assert state is not None
+
+    forwarder._append({"entity_id": "sensor.restored"}, logged=True)
+    assert forwarder.diagnostics()["last_state_change"] is None
+
+    forwarder.handle_state_changed({"entity_id": "sensor.energy", "new_state": state})
+
+    assert datetime.fromisoformat(forwarder.diagnostics()["last_state_change"]) is not None
 
 
 def test_backoff_uses_capped_exponential_delays() -> None:
@@ -418,7 +433,7 @@ async def test_forwarder_restores_queue_from_log_on_start() -> None:
         await forwarder.async_stop()
 
     assert [item.payload for item in forwarder._queue] == [restored[0]]
-    assert [item.logged for item in forwarder._queue] == [True]
+    assert [item.persisted for item in forwarder._queue] == [True]
 
 
 async def test_forwarder_appends_only_unlogged_items_on_tick() -> None:
@@ -438,7 +453,8 @@ async def test_forwarder_appends_only_unlogged_items_on_tick() -> None:
     await forwarder._sync_log_once()
 
     assert log.appended == [[first], [second]]
-    assert [item.logged for item in forwarder._queue] == [True, True]
+    assert [item.persisted for item in forwarder._queue] == [True, True]
+    assert datetime.fromisoformat(forwarder.diagnostics()["last_disk_write"]) is not None
 
 
 async def test_forwarder_rewrites_log_when_queue_overflowed_since_last_tick() -> None:
@@ -460,7 +476,7 @@ async def test_forwarder_rewrites_log_when_queue_overflowed_since_last_tick() ->
     assert log.appended == [[first, second]]
     assert log.rewritten == [[second, third]]
     assert [item.payload for item in forwarder._queue] == [second, third]
-    assert [item.logged for item in forwarder._queue] == [True, True]
+    assert [item.persisted for item in forwarder._queue] == [True, True]
 
 
 async def test_forwarder_clears_log_drifted_flag_after_rewrite() -> None:
@@ -538,7 +554,7 @@ async def test_forwarder_log_survives_append_failure() -> None:
     await forwarder._sync_log_once()
 
     assert log.appended == [[queued]]
-    assert [item.logged for item in forwarder._queue] == [True]
+    assert [item.persisted for item in forwarder._queue] == [True]
 
 
 async def test_forwarder_runs_final_append_on_stop_for_unlogged_items() -> None:

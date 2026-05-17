@@ -1,6 +1,6 @@
 [project]
 name = "haro"
-version = "0.0.1rc7"
+version = "0.0.1rc8"
 description = "Home Assistant Replay Observer"
 readme = "README.md"
 requires-python = ">=3.13.2,<3.14"

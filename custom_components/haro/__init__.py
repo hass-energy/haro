@@ -186,7 +186,13 @@ async def _data_with_replay_site(
 ) -> tuple[dict[str, Any], list[dict[str, Any]] | None]:
     """Repair legacy config entries that predate Replay site selection."""
     data = dict(entry.data)
-    if replay_url == REPLAY_URL_LOG_ONLY or CONF_REPLAY_SITE_ID in data:
+    if replay_url == REPLAY_URL_LOG_ONLY:
+        if CONF_REPLAY_SITE_ID in data or CONF_HAEO_CONFIG_ENTRY_ID not in data:
+            return data, None
+        repaired = {**data, CONF_REPLAY_SITE_ID: REPLAY_URL_LOG_ONLY}
+        hass.config_entries.async_update_entry(entry, data=repaired)
+        return repaired, None
+    if CONF_REPLAY_SITE_ID in data:
         return data, None
 
     token = str(data[CONF_TOKEN])

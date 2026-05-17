@@ -115,6 +115,35 @@ async def test_async_setup_entry_uses_yaml_replay_url() -> None:
 
 
 @pytest.mark.asyncio
+async def test_async_setup_entry_repairs_log_only_entry_without_replay_site() -> None:
+    config_entries = FakeConfigEntries()
+    hass = haro_hass(REPLAY_URL_LOG_ONLY, config_entries)
+    entry = haro_entry({CONF_TOKEN: "token", CONF_HAEO_CONFIG_ENTRY_ID: "haeo-entry"})
+    client = Mock()
+    forwarder = Mock()
+    forwarder.async_start = AsyncMock()
+
+    with (
+        patch(
+            "custom_components.haro._config_environment", AsyncMock(return_value=ConfigEnvironment("ha", "haeo", "UTC"))
+        ),
+        patch("custom_components.haro.replay_client_from_config", Mock(return_value=client)) as create_client,
+        patch("custom_components.haro.HaroForwarder", Mock(return_value=forwarder)),
+    ):
+        result = await async_setup_entry(hass, entry)  # type: ignore[arg-type]
+
+    repaired_data = {
+        CONF_TOKEN: "token",
+        CONF_HAEO_CONFIG_ENTRY_ID: "haeo-entry",
+        CONF_REPLAY_SITE_ID: REPLAY_URL_LOG_ONLY,
+    }
+    assert result is True
+    config_entries.async_update_entry.assert_called_once_with(entry, data=repaired_data)
+    create_client.assert_called_once_with(repaired_data, REPLAY_URL_LOG_ONLY)
+    assert entry.runtime_data.config_sync.site_id == REPLAY_URL_LOG_ONLY
+
+
+@pytest.mark.asyncio
 async def test_async_setup_entry_requires_selected_haeo_entry() -> None:
     hass = haro_hass(REPLAY_URL_LOG_ONLY, FakeConfigEntries([]))
     entry = haro_entry(

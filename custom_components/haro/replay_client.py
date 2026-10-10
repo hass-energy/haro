@@ -79,6 +79,7 @@ class ReplayWebSocketClient:
     site_id: str
     haeo_entry_id: str
     connect_fn: ConnectFn | None = None
+    config_state_timeout: float = 30.0
     stats: ReplayClientStats = field(default_factory=ReplayClientStats)
     _ws: Any | None = None
     _lock: asyncio.Lock = field(default_factory=asyncio.Lock)
@@ -129,17 +130,26 @@ class ReplayWebSocketClient:
             raise ReplayClientError("unreachable")
 
     async def receive_config_state(self) -> dict[str, Any]:
-        """Receive Replay's config_state announcement after connect."""
+        """Receive this site's config_state, which Replay only announces right after connecting."""
         async with self._lock:
-            await self.connect()
-            assert self._ws is not None
-            while True:
-                msg = await self._ws.receive_json()
-                if msg.get("type") == "config_state":
-                    return msg
-                if msg.get("type") == "error":
-                    self.stats.last_error = str(msg.get("error", "unknown"))
-                    raise ReplayClientError(self.stats.last_error)
+            await self.close()
+            try:
+                async with asyncio.timeout(self.config_state_timeout):
+                    await self.connect()
+                    return await self._receive_own_config_state()
+            except Exception as e:
+                self.stats.last_error = str(e) or type(e).__name__
+                await self.close()
+                raise
+
+    async def _receive_own_config_state(self) -> dict[str, Any]:
+        assert self._ws is not None
+        while True:
+            msg = await self._ws.receive_json()
+            if msg.get("type") == "config_state" and msg.get("site_id") == self.site_id:
+                return msg
+            if msg.get("type") == "error":
+                raise ReplayClientError(str(msg.get("error", "unknown")))
 
     async def send_config_event(self, event: ConfigPayload) -> dict[str, Any]:
         """Send one queued config event and wait for its matching ack."""
@@ -271,7 +281,28 @@ async def _default_connect(url: str, headers: dict[str, str]) -> Any:
 
     session = aiohttp.ClientSession()
     try:
-        return await session.ws_connect(url, headers=headers, heartbeat=30)
+        ws = await session.ws_connect(url, headers=headers, heartbeat=30)
     except Exception:
         await session.close()
         raise
+    return _SessionWebSocket(ws, session)
+
+
+@dataclass
+class _SessionWebSocket:
+    """Websocket that owns its aiohttp session, so closing one closes both."""
+
+    ws: Any
+    session: Any
+
+    async def send_json(self, payload: dict[str, Any]) -> None:
+        await self.ws.send_json(payload)
+
+    async def receive_json(self) -> dict[str, Any]:
+        return await self.ws.receive_json()
+
+    async def close(self) -> None:
+        try:
+            await self.ws.close()
+        finally:
+            await self.session.close()

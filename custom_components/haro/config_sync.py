@@ -110,9 +110,12 @@ class ConfigSync:
             events = [checkpoint]
         for event in events:
             ack = await self.client.send_config_event(event)
-            if ack.get("type") == "ack" and ack.get("id") == event.get("id"):
-                await self.queue.async_ack(str(event["id"]))
-                self._queued = len(await self.queue.async_load())
+            if ack.get("type") != "ack" or ack.get("id") != event.get("id"):
+                return
+            await self.queue.async_ack(str(event["id"]))
+        # Replay now matches the local config, so everything queued before this reconcile is history.
+        await self.queue.async_discard({str(event["id"]) for event in queued})
+        self._queued = len(await self.queue.async_load())
 
 
 def environment_from_payload(value: Any) -> ConfigEnvironment | None:

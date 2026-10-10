@@ -34,7 +34,11 @@ class ConfigEventQueue:
 
     async def async_ack(self, event_id: str) -> None:
         """Remove an event after Replay has acked its id."""
-        events = [event for event in await self.async_load() if event.get("id") != event_id]
+        await self.async_discard({event_id})
+
+    async def async_discard(self, event_ids: set[str]) -> None:
+        """Remove events by id, keeping anything queued since they were loaded."""
+        events = [event for event in await self.async_load() if event.get("id") not in event_ids]
         await self.async_rewrite(events)
 
     async def async_remove(self) -> None:
